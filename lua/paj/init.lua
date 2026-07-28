@@ -12,6 +12,7 @@ local defaults = {
 
 local config = vim.deepcopy(defaults)
 local selected_sessions = {}
+local requests = {}
 local configured = false
 
 local function project_root()
@@ -21,7 +22,7 @@ end
 local function session_label(session)
   local branch = session.branch or "no branch"
   local task = session.task and (" — " .. session.task) or ""
-  return string.format("%s [%s/%s] %s%s", session.name, session.role, session.status, branch, task)
+  return string.format("%s [%s] %s%s", session.name, session.role, branch, task)
 end
 
 local function choose_session(cwd, sessions, callback)
@@ -88,6 +89,38 @@ local function append_text(buffer, text)
   vim.bo[buffer].modifiable = false
 end
 
+local function set_header(buffer, session, status)
+  if not vim.api.nvim_buf_is_valid(buffer) then
+    return
+  end
+  vim.bo[buffer].modifiable = true
+  vim.api.nvim_buf_set_lines(buffer, 0, 1, false, { string.format("# Paj · %s · %s", session.name, status) })
+  vim.bo[buffer].modifiable = false
+end
+
+local function cancel_request(buffer, update_status)
+  local request = requests[buffer]
+  if not request or not request.active then
+    return false
+  end
+  request.active = false
+  request.cancelled = true
+  if request.job then
+    vim.fn.jobstop(request.job)
+  end
+  if update_status ~= false then
+    set_header(buffer, request.session, "cancelled")
+  end
+  return true
+end
+
+local function close_output(buffer)
+  cancel_request(buffer)
+  if vim.api.nvim_buf_is_valid(buffer) then
+    vim.api.nvim_buf_delete(buffer, { force = true })
+  end
+end
+
 local function open_output(session)
   vim.cmd(string.format("botright %dnew", config.output_height))
   local buffer = vim.api.nvim_get_current_buf()
@@ -96,17 +129,30 @@ local function open_output(session)
   vim.bo[buffer].bufhidden = "wipe"
   vim.bo[buffer].swapfile = false
   vim.bo[buffer].filetype = "markdown"
+  requests[buffer] = { active = true, cancelled = false, session = session }
+  vim.api.nvim_buf_create_user_command(buffer, "PajCancel", function()
+    if not cancel_request(buffer) then
+      vim.notify("No active Paj request in this buffer", vim.log.levels.INFO)
+    end
+  end, {})
+  vim.api.nvim_buf_create_user_command(buffer, "PajClose", function()
+    close_output(buffer)
+  end, {})
+  vim.keymap.set("n", "q", function()
+    if not cancel_request(buffer) then
+      close_output(buffer)
+    end
+  end, { buffer = buffer, silent = true, desc = "Cancel or close Paj output" })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    buffer = buffer,
+    once = true,
+    callback = function()
+      cancel_request(buffer, false)
+      requests[buffer] = nil
+    end,
+  })
   set_buffer_lines(buffer, { "# Paj · " .. session.name .. " · connecting", "", "" })
   return buffer
-end
-
-local function set_header(buffer, session, status)
-  if not vim.api.nvim_buf_is_valid(buffer) then
-    return
-  end
-  vim.bo[buffer].modifiable = true
-  vim.api.nvim_buf_set_lines(buffer, 0, 1, false, { string.format("# Paj · %s · %s", session.name, status) })
-  vim.bo[buffer].modifiable = false
 end
 
 local function run_prompt(text)
@@ -120,28 +166,44 @@ local function run_prompt(text)
   local cwd = project_root()
   resolve_session(cwd, false, function(session)
     local buffer = open_output(session)
-    client.prompt(config, cwd, session, text, {
+    local request = requests[buffer]
+    request.job = client.prompt(config, cwd, session, text, {
       on_event = function(event)
+        if request.cancelled then
+          return
+        end
         if event.event == "accepted" then
           set_header(buffer, session, "working")
         elseif event.event == "delta" then
           append_text(buffer, event.text or "")
         elseif event.event == "complete" then
+          request.active = false
           local body = vim.split(event.text or "", "\n", { plain = true })
           set_buffer_lines(buffer, vim.list_extend({ "# Paj · " .. session.name .. " · complete", "" }, body))
         elseif event.event == "error" then
+          request.active = false
           set_header(buffer, session, "error")
           append_text(buffer, string.format("\n%s: %s", event.code or "error", event.message or "Unknown bridge error"))
         end
       end,
       on_error = function(message)
         vim.schedule(function()
+          if request.cancelled then
+            return
+          end
+          request.active = false
           set_header(buffer, session, "error")
           append_text(buffer, "\n" .. message)
           vim.notify(message, vim.log.levels.ERROR)
         end)
       end,
+      on_exit = function()
+        request.job = nil
+      end,
     })
+    if not request.job and not request.cancelled then
+      request.active = false
+    end
   end)
 end
 

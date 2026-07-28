@@ -37,20 +37,6 @@ function M.prompt(config, cwd, session, text, handlers)
     handlers.on_error(err)
     return
   end
-  local prompt_file = vim.fn.tempname()
-  local descriptor, open_error = vim.uv.fs_open(prompt_file, "w", 384)
-  if not descriptor then
-    handlers.on_error("Failed to create Paj prompt: " .. tostring(open_error))
-    return
-  end
-  local written, write_error = vim.uv.fs_write(descriptor, text, -1)
-  vim.uv.fs_close(descriptor)
-  if written ~= #text then
-    vim.fn.delete(prompt_file)
-    handlers.on_error("Failed to write Paj prompt: " .. tostring(write_error or "incomplete write"))
-    return
-  end
-
   local stderr = {}
   local saw_protocol_error = false
   local decoder = protocol.decoder(function(event)
@@ -68,12 +54,12 @@ function M.prompt(config, cwd, session, text, handlers)
     "bridge",
     "prompt",
     session.id,
-    "--prompt-file",
-    prompt_file,
+    "--prompt-stdin",
     "--timeout",
     tostring(config.timeout),
   }, {
     cwd = cwd,
+    stdin = "pipe",
     stdout_buffered = false,
     stderr_buffered = false,
     on_stdout = function(_, data)
@@ -88,7 +74,6 @@ function M.prompt(config, cwd, session, text, handlers)
     end,
     on_exit = function(_, code)
       decoder.finish()
-      vim.fn.delete(prompt_file)
       vim.schedule(function()
         if code ~= 0 and not saw_protocol_error then
           handlers.on_error(
@@ -102,10 +87,15 @@ function M.prompt(config, cwd, session, text, handlers)
     end,
   })
   if job <= 0 then
-    vim.fn.delete(prompt_file)
     handlers.on_error("Failed to start Paj bridge client")
     return
   end
+  if vim.fn.chansend(job, text) == 0 then
+    vim.fn.jobstop(job)
+    handlers.on_error("Failed to send prompt to Paj bridge client")
+    return
+  end
+  vim.fn.chanclose(job, "stdin")
   return job
 end
 
