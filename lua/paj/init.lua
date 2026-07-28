@@ -20,8 +20,8 @@ local function project_root()
 end
 
 local function session_label(session)
-  local branch = session.branch or "no branch"
-  local task = session.task and (" — " .. session.task) or ""
+  local branch = type(session.branch) == "string" and session.branch or "no branch"
+  local task = type(session.task) == "string" and (" — " .. session.task) or ""
   return string.format("%s [%s] %s%s", session.name, session.role, branch, task)
 end
 

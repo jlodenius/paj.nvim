@@ -113,7 +113,15 @@ vim.fn.mkdir(project .. "/lua", "p")
 vim.cmd("enew")
 vim.api.nvim_buf_set_name(0, project .. "/lua/example.lua")
 mock.sessions = {
-  { id = "one", name = "first", role = "primary", status = "idle", branch = "main", bridgeSocket = "/one" },
+  {
+    id = "one",
+    name = "first",
+    role = "primary",
+    status = "idle",
+    branch = vim.NIL,
+    task = vim.NIL,
+    bridgeSocket = "/one",
+  },
   {
     id = "two",
     name = "second",
@@ -130,6 +138,7 @@ local original_select = vim.ui.select
 vim.ui.select = function(items, options, callback)
   picker_calls = picker_calls + 1
   assert(#items == 2)
+  assert(options.format_item(items[1]) == "first [primary] no branch")
   local label = options.format_item(items[2])
   assert(label == "second [reviewer] topic — review")
   assert(not label:find("idle", 1, true))
