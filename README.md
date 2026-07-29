@@ -58,7 +58,7 @@ Examples:
 :PajReview focus on concurrency
 ```
 
-`PajQuery` opens a multiline floating buffer. Enter a question and use `:write` to send it, or press `q` in normal mode to close it. The sent prompt clearly separates the query from the source context.
+`PajQuery` opens a centered multiline floating buffer with a `:w=submit q=cancel` footer. Enter a question and use `:write` to send it, or press `q` in normal mode to cancel. The sent prompt clearly separates the query from the source context.
 
 `PajQuery`, `PajExplain`, and `PajReview` include the source path, line range, and buffer content as escaped, explicitly untrusted JSON data. With no range they use the entire current buffer. Responses stream into a temporary Markdown scratch buffer.
 

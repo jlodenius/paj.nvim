@@ -219,6 +219,35 @@ local function prompt_command(command)
   end)
 end
 
+local function create_query_footer(row, col, width)
+  local buffer = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buffer, string.format("paj-query-footer://%d", vim.uv.hrtime()))
+  vim.bo[buffer].buftype = "nofile"
+  vim.bo[buffer].bufhidden = "wipe"
+  vim.bo[buffer].swapfile = false
+  vim.api.nvim_buf_set_lines(buffer, 0, -1, false, { " :w=submit q=cancel" })
+
+  local namespace = vim.api.nvim_create_namespace("paj.query.footer")
+  vim.api.nvim_buf_set_extmark(buffer, namespace, 0, 1, { end_col = 3, hl_group = "WarningMsg" })
+  vim.api.nvim_buf_set_extmark(buffer, namespace, 0, 4, { end_col = 10, hl_group = "Comment" })
+  vim.api.nvim_buf_set_extmark(buffer, namespace, 0, 11, { end_col = 12, hl_group = "WarningMsg" })
+  vim.api.nvim_buf_set_extmark(buffer, namespace, 0, 13, { end_col = 19, hl_group = "Comment" })
+  vim.bo[buffer].modifiable = false
+  vim.bo[buffer].readonly = true
+
+  local window = vim.api.nvim_open_win(buffer, false, {
+    relative = "editor",
+    row = row,
+    col = col + 1,
+    width = width - 2,
+    height = 1,
+    style = "minimal",
+    zindex = 200,
+    focusable = false,
+  })
+  return buffer, window
+end
+
 local function open_query(command)
   local captured_source = context.capture(command)
   local cwd = project_root()
@@ -229,24 +258,48 @@ local function open_query(command)
   vim.bo[buffer].swapfile = false
   vim.bo[buffer].filetype = "markdown"
 
-  local columns = vim.o.columns
-  local lines = vim.o.lines
-  local width = math.max(1, math.min(80, columns - 4))
-  local height = math.max(1, math.min(12, lines - 4))
-  vim.api.nvim_open_win(buffer, true, {
+  local ui = vim.api.nvim_list_uis()[1] or { width = vim.o.columns, height = vim.o.lines }
+  local width = math.max(3, math.floor(ui.width * 2 / 3))
+  local height = math.max(1, math.floor(ui.height / 3))
+  local row = math.floor((ui.height - height) / 2)
+  local col = math.floor((ui.width - width) / 2)
+  local window = vim.api.nvim_open_win(buffer, true, {
     relative = "editor",
-    row = math.floor((lines - height) / 2),
-    col = math.floor((columns - width) / 2),
+    row = row,
+    col = col,
     width = width,
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Paj query — write to send ",
+    title = " Paj query ",
     title_pos = "center",
+    zindex = 100,
   })
+  vim.wo[window].wrap = true
+  local footer_buffer, footer_window = create_query_footer(row + height, col, width)
+
+  local closed = false
+  local group = vim.api.nvim_create_augroup("paj_query_" .. buffer, { clear = true })
+  local function close_query()
+    if closed then
+      return
+    end
+    closed = true
+    if vim.api.nvim_win_is_valid(footer_window) then
+      vim.api.nvim_win_close(footer_window, true)
+    end
+    if vim.api.nvim_buf_is_valid(footer_buffer) then
+      vim.api.nvim_buf_delete(footer_buffer, { force = true })
+    end
+    if vim.api.nvim_buf_is_valid(buffer) then
+      vim.api.nvim_buf_delete(buffer, { force = true })
+    end
+    pcall(vim.api.nvim_del_augroup_by_id, group)
+  end
 
   local sent = false
   vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = group,
     buffer = buffer,
     callback = function()
       if sent then
@@ -259,13 +312,16 @@ local function open_query(command)
       end
       sent = true
       vim.bo[buffer].modified = false
-      vim.api.nvim_buf_delete(buffer, { force = true })
+      close_query()
       run_prompt(context.query(captured_source, query), cwd)
     end,
   })
-  vim.keymap.set("n", "q", function()
-    vim.api.nvim_buf_delete(buffer, { force = true })
-  end, { buffer = buffer, silent = true, desc = "Close Paj query" })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    pattern = tostring(window),
+    callback = close_query,
+  })
+  vim.keymap.set("n", "q", close_query, { buffer = buffer, silent = true, nowait = true, desc = "Cancel Paj query" })
   vim.cmd("startinsert")
 end
 

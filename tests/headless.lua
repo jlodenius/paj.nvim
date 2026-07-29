@@ -160,9 +160,32 @@ assert(mock.last_cwd == project)
 assert(picker_calls == 1)
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local first = 1", "return first" })
 vim.cmd("2,2PajQuery")
-local query_buffer = vim.api.nvim_get_current_buf()
-assert(vim.bo[query_buffer].buftype == "acwrite")
+local cancelled_query_buffer = vim.api.nvim_get_current_buf()
+assert(vim.bo[cancelled_query_buffer].buftype == "acwrite")
 assert(vim.api.nvim_win_get_config(0).relative == "editor")
+local footer_buffer
+for _, candidate in ipairs(vim.api.nvim_list_bufs()) do
+  if vim.api.nvim_buf_is_valid(candidate) and vim.api.nvim_buf_get_name(candidate):find("paj%-query%-footer://") then
+    footer_buffer = candidate
+    break
+  end
+end
+assert(footer_buffer)
+assert(vim.api.nvim_buf_get_lines(footer_buffer, 0, -1, false)[1] == " :w=submit q=cancel")
+local q_mapping
+for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(cancelled_query_buffer, "n")) do
+  if mapping.lhs == "q" then
+    q_mapping = mapping
+    break
+  end
+end
+assert(q_mapping and q_mapping.callback)
+q_mapping.callback()
+assert(not vim.api.nvim_buf_is_valid(cancelled_query_buffer))
+assert(not vim.api.nvim_buf_is_valid(footer_buffer))
+
+vim.cmd("2,2PajQuery")
+local query_buffer = vim.api.nvim_get_current_buf()
 vim.api.nvim_buf_set_lines(query_buffer, 0, -1, false, { "What does this return?", "Mention the value." })
 vim.cmd("write")
 local sent_query = mock.prompts[#mock.prompts]
