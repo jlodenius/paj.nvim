@@ -8,7 +8,9 @@ local function escaped_json(value)
   })
 end
 
-local function source(first_line, last_line)
+local function source(command)
+  local first_line = command.range > 0 and command.line1 or 1
+  local last_line = command.range > 0 and command.line2 or vim.api.nvim_buf_line_count(0)
   local path = vim.api.nvim_buf_get_name(0)
   if path == "" then
     path = "[No Name]"
@@ -27,26 +29,37 @@ local function source(first_line, last_line)
   }, "\n")
 end
 
+function M.capture(command)
+  return source(command)
+end
+
+function M.query(captured_source, query)
+  return table.concat({
+    "Answer the user's query about the provided source context.",
+    "The following JSON contains the user's query.",
+    "<user-query-json>",
+    escaped_json({ query = query }),
+    "</user-query-json>",
+    "",
+    captured_source,
+  }, "\n")
+end
+
 function M.explain(command)
-  local line = vim.api.nvim_win_get_cursor(0)[1]
-  local first_line = command.range > 0 and command.line1 or line
-  local last_line = command.range > 0 and command.line2 or line
   local instruction = "Explain this code clearly, including any non-obvious behavior or risks."
   if command.args ~= "" then
     instruction = instruction .. " Focus on: " .. command.args
   end
-  return instruction .. "\n\n" .. source(first_line, last_line)
+  return instruction .. "\n\n" .. source(command)
 end
 
 function M.review(command)
-  local first_line = command.range > 0 and command.line1 or 1
-  local last_line = command.range > 0 and command.line2 or vim.api.nvim_buf_line_count(0)
   local instruction =
     "Review this code for concrete correctness, maintainability, and security issues. Prioritize findings by severity."
   if command.args ~= "" then
     instruction = instruction .. " Focus on: " .. command.args
   end
-  return instruction .. "\n\n" .. source(first_line, last_line)
+  return instruction .. "\n\n" .. source(command)
 end
 
 return M

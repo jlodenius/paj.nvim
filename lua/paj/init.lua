@@ -155,7 +155,7 @@ local function open_output(session)
   return buffer
 end
 
-local function run_prompt(text)
+local function run_prompt(text, cwd)
   if text == "" then
     return
   end
@@ -163,7 +163,7 @@ local function run_prompt(text)
     vim.notify(string.format("Paj prompt exceeds %d bytes", config.max_prompt_bytes), vim.log.levels.ERROR)
     return
   end
-  local cwd = project_root()
+  cwd = cwd or project_root()
   resolve_session(cwd, false, function(session)
     local buffer = open_output(session)
     local request = requests[buffer]
@@ -219,6 +219,56 @@ local function prompt_command(command)
   end)
 end
 
+local function open_query(command)
+  local captured_source = context.capture(command)
+  local cwd = project_root()
+  local buffer = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buffer, string.format("paj-query://%d", vim.uv.hrtime()))
+  vim.bo[buffer].buftype = "acwrite"
+  vim.bo[buffer].bufhidden = "wipe"
+  vim.bo[buffer].swapfile = false
+  vim.bo[buffer].filetype = "markdown"
+
+  local columns = vim.o.columns
+  local lines = vim.o.lines
+  local width = math.max(1, math.min(80, columns - 4))
+  local height = math.max(1, math.min(12, lines - 4))
+  vim.api.nvim_open_win(buffer, true, {
+    relative = "editor",
+    row = math.floor((lines - height) / 2),
+    col = math.floor((columns - width) / 2),
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " Paj query — write to send ",
+    title_pos = "center",
+  })
+
+  local sent = false
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = buffer,
+    callback = function()
+      if sent then
+        return
+      end
+      local query = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n"))
+      if query == "" then
+        vim.notify("Paj query cannot be empty", vim.log.levels.WARN)
+        return
+      end
+      sent = true
+      vim.bo[buffer].modified = false
+      vim.api.nvim_buf_delete(buffer, { force = true })
+      run_prompt(context.query(captured_source, query), cwd)
+    end,
+  })
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_buf_delete(buffer, { force = true })
+  end, { buffer = buffer, silent = true, desc = "Close Paj query" })
+  vim.cmd("startinsert")
+end
+
 function M.setup(options)
   config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
   if configured then
@@ -239,6 +289,7 @@ function M.setup(options)
     end)
   end, {})
   vim.api.nvim_create_user_command("PajPrompt", prompt_command, { nargs = "*" })
+  vim.api.nvim_create_user_command("PajQuery", open_query, { range = true })
   vim.api.nvim_create_user_command("PajExplain", function(command)
     run_prompt(context.explain(command))
   end, {

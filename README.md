@@ -45,18 +45,22 @@ Paj selects the only available session automatically. When multiple sessions are
 | `:PajSessions` | Select the target Pi session for the current project |
 | `:PajAttach` | Alias for `:PajSessions` |
 | `:PajPrompt [prompt]` | Send a prompt, opening an input when no argument is given |
-| `:[range]PajExplain [focus]` | Explain the selected lines, or the current line without a range |
+| `:[range]PajQuery` | Open an editable floating query for the selected lines or entire buffer; write it to send |
+| `:[range]PajExplain [focus]` | Explain the selected lines, or the entire buffer without a range |
 | `:[range]PajReview [focus]` | Review the selected lines, or the entire buffer without a range |
 
 Examples:
 
 ```vim
+:'<,'>PajQuery
 :'<,'>PajExplain focus on ownership
 :%PajReview focus on error handling
 :PajReview focus on concurrency
 ```
 
-`PajExplain` and `PajReview` include the source path, line range, and selected buffer content as escaped, explicitly untrusted JSON data. Responses stream into a temporary Markdown scratch buffer.
+`PajQuery` opens a multiline floating buffer. Enter a question and use `:write` to send it, or press `q` in normal mode to close it. The sent prompt clearly separates the query from the source context.
+
+`PajQuery`, `PajExplain`, and `PajReview` include the source path, line range, and buffer content as escaped, explicitly untrusted JSON data. With no range they use the entire current buffer. Responses stream into a temporary Markdown scratch buffer.
 
 While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
 
