@@ -73,6 +73,29 @@ assert(query_data.query == "Why <this>?\nBe specific")
 assert(not query:find("Why <this>", 1, true))
 assert(query:find('"content":"return one"', 1, true))
 
+local response = require("paj.response")
+local contracted = response.with_contract("Explain this")
+assert(contracted:find("Explain this", 1, true))
+assert(contracted:find("<paj-response>", 1, true))
+local proposal_text = table.concat({
+  "I recommend changing the decoder.",
+  "",
+  "<paj-response>",
+  '{"version":1,"actions":[{"id":"decoder","title":"Fix decoder","description":"Buffer partial lines."}]}',
+  "</paj-response>",
+}, "\n")
+local clean_response, parsed_actions = response.parse(proposal_text)
+assert(clean_response == "I recommend changing the decoder.")
+assert(#parsed_actions == 1 and parsed_actions[1].id == "decoder")
+local unchanged_response, invalid_actions = response.parse("answer\n<paj-response>{bad}</paj-response>")
+assert(unchanged_response:find("{bad}", 1, true) and #invalid_actions == 0)
+local accepted_prompt = response.accept_prompt({ id = "one", title = "Use <one>", description = "Change & validate" })
+assert(not accepted_prompt:find("Use <one>", 1, true))
+assert(
+  vim.json.decode(accepted_prompt:match("<accepted%-paj%-action%-json>\n(.-)\n</accepted%-paj%-action%-json>")).title
+    == "Use <one>"
+)
+
 local mock = {
   sessions = {},
   prompts = {},
@@ -90,6 +113,20 @@ function mock.prompt(_, cwd, session, text, handlers)
     handlers.on_event({ event = "complete", text = "final\nanswer" })
     handlers.on_exit(0)
     return 101
+  elseif mock.behavior == "proposal" then
+    handlers.on_event({ event = "accepted" })
+    handlers.on_event({
+      event = "complete",
+      text = table.concat({
+        "A change would help.",
+        "",
+        "<paj-response>",
+        '{"version":1,"actions":[{"id":"change-one","title":"Change one","description":"Make the proposed change."}]}',
+        "</paj-response>",
+      }, "\n"),
+    })
+    handlers.on_exit(0)
+    return 104
   elseif mock.behavior == "error_event" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({ event = "error", code = "busy", message = "Pi session is busy" })
@@ -184,10 +221,12 @@ q_mapping.callback()
 assert(not vim.api.nvim_buf_is_valid(cancelled_query_buffer))
 assert(not vim.api.nvim_buf_is_valid(footer_buffer))
 
+mock.behavior = "proposal"
 vim.cmd("2,2PajQuery")
 local query_buffer = vim.api.nvim_get_current_buf()
 vim.api.nvim_buf_set_lines(query_buffer, 0, -1, false, { "What does this return?", "Mention the value." })
 vim.cmd("write")
+local proposal_buffer = vim.api.nvim_get_current_buf()
 local sent_query = mock.prompts[#mock.prompts]
 assert(sent_query.cwd == project)
 assert(sent_query.session.id == "two")
@@ -197,12 +236,37 @@ local sent_source_data =
   vim.json.decode(sent_query.text:match("<untrusted%-source%-json>\n(.-)\n</untrusted%-source%-json>"))
 assert(sent_source_data.content == "return first")
 assert(sent_source_data.lines[1] == 2 and sent_source_data.lines[2] == 2)
+assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
+assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
+assert(vim.fn.exists(":PajAccept") == 2)
+assert(vim.fn.exists(":PajFollowUp") == 2)
+mock.behavior = "complete"
+vim.cmd("PajAccept")
+local accepted_request = mock.prompts[#mock.prompts]
+assert(accepted_request.session.id == "two" and accepted_request.cwd == project)
+local accepted_action =
+  vim.json.decode(accepted_request.text:match("<accepted%-paj%-action%-json>\n(.-)\n</accepted%-paj%-action%-json>"))
+assert(accepted_action.id == "change-one" and accepted_action.title == "Change one")
 vim.cmd("PajClose")
+if vim.api.nvim_buf_is_valid(proposal_buffer) then
+  vim.api.nvim_set_current_buf(proposal_buffer)
+  vim.cmd("PajClose")
+end
 vim.cmd("PajPrompt architecture")
 assert(picker_calls == 1)
 assert(mock.prompts[#mock.prompts].session.id == "two")
 assert(mock.prompts[#mock.prompts].cwd == project)
 assert(buffer_text(0) == "# Paj · second · complete\n\nfinal\nanswer")
+vim.cmd("PajFollowUp")
+local followup_buffer = vim.api.nvim_get_current_buf()
+assert(vim.bo[followup_buffer].buftype == "acwrite")
+vim.api.nvim_buf_set_lines(followup_buffer, 0, -1, false, { "Can you clarify?", "Be concise." })
+vim.cmd("write")
+local followup_request = mock.prompts[#mock.prompts]
+assert(followup_request.session.id == "two" and followup_request.cwd == project)
+local followup_data =
+  vim.json.decode(followup_request.text:match("<user%-followup%-json>\n(.-)\n</user%-followup%-json>"))
+assert(followup_data.question == "Can you clarify?\nBe concise.")
 
 vim.cmd("enew")
 local outside = vim.fn.tempname()
@@ -231,7 +295,8 @@ vim.cmd("PajPrompt 12345")
 assert(#mock.prompts == before)
 vim.cmd("PajPrompt åå")
 assert(#mock.prompts == before + 1)
-assert(mock.prompts[#mock.prompts].text == "åå" and #mock.prompts[#mock.prompts].text == 4)
+assert(mock.prompts[#mock.prompts].text:sub(1, 4) == "åå")
+assert(mock.prompts[#mock.prompts].text:find("<paj-response>", 1, true))
 vim.cmd("PajPrompt ååa")
 assert(#mock.prompts == before + 1)
 assert(notices[#notices].message:find("exceeds 4 bytes", 1, true) ~= nil)
@@ -262,7 +327,7 @@ wait_for(function()
 end)
 vim.cmd("PajClose")
 assert(not vim.api.nvim_buf_is_valid(running_buffer))
-assert(running_prompt.text == "cancellable")
+assert(running_prompt.text:sub(1, #"cancellable") == "cancellable")
 
 vim.ui.select = original_select
 vim.notify = original_notify

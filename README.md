@@ -64,6 +64,8 @@ Examples:
 
 While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
 
+Every completed response supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. When an agent response recommends one or more concrete changes, the output also shows an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Paj then asks the same agent to implement the accepted change. Closing a response without accepting simply leaves its proposals unimplemented.
+
 ## Configuration
 
 ```lua

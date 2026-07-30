@@ -1,5 +1,6 @@
 local client = require("paj.client")
 local context = require("paj.context")
+local response = require("paj.response")
 
 local M = {}
 
@@ -14,6 +15,9 @@ local config = vim.deepcopy(defaults)
 local selected_sessions = {}
 local requests = {}
 local configured = false
+local action_namespace = vim.api.nvim_create_namespace("paj.response.actions")
+local open_text_input
+local run_prompt
 
 local function project_root()
   return vim.fs.root(0, ".git") or vim.uv.cwd()
@@ -121,7 +125,73 @@ local function close_output(buffer)
   end
 end
 
-local function open_output(session)
+local function pending_actions(request)
+  return vim.tbl_filter(function(action)
+    return action.status == "pending"
+  end, request.actions or {})
+end
+
+local function render_response_actions(buffer)
+  if not vim.api.nvim_buf_is_valid(buffer) then
+    return
+  end
+  vim.api.nvim_buf_clear_namespace(buffer, action_namespace, 0, -1)
+  local request = requests[buffer]
+  if not request or request.active then
+    return
+  end
+  local pending = pending_actions(request)
+  local label = #pending > 0 and " a accept · f follow-up · q close" or " f follow-up · q close"
+  vim.api.nvim_buf_set_extmark(buffer, action_namespace, 0, 0, {
+    virt_lines = { { { label, "Comment" } } },
+  })
+end
+
+local function follow_up_response(buffer)
+  local request = requests[buffer]
+  if not request or request.active then
+    vim.notify("Wait for the Paj response to complete", vim.log.levels.INFO)
+    return
+  end
+  open_text_input({ title = " Paj follow-up " }, function(question)
+    run_prompt(response.followup_prompt(question), request.cwd, request.session)
+  end)
+end
+
+local function accept_response(buffer)
+  local request = requests[buffer]
+  if not request or request.active then
+    vim.notify("Wait for the Paj response to complete", vim.log.levels.INFO)
+    return
+  end
+  local pending = pending_actions(request)
+  if #pending == 0 then
+    vim.notify("This response has no pending proposed changes", vim.log.levels.INFO)
+    return
+  end
+
+  local function accept(action)
+    if not action then
+      return
+    end
+    action.status = "accepted"
+    render_response_actions(buffer)
+    run_prompt(response.accept_prompt(action), request.cwd, request.session)
+  end
+
+  if #pending == 1 then
+    accept(pending[1])
+    return
+  end
+  vim.ui.select(pending, {
+    prompt = "Accept proposed change",
+    format_item = function(action)
+      return action.title
+    end,
+  }, accept)
+end
+
+local function open_output(session, cwd)
   vim.cmd(string.format("botright %dnew", config.output_height))
   local buffer = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_set_name(buffer, string.format("paj://%s/%d", session.name, vim.uv.hrtime()))
@@ -129,7 +199,7 @@ local function open_output(session)
   vim.bo[buffer].bufhidden = "wipe"
   vim.bo[buffer].swapfile = false
   vim.bo[buffer].filetype = "markdown"
-  requests[buffer] = { active = true, cancelled = false, session = session }
+  requests[buffer] = { active = true, cancelled = false, session = session, cwd = cwd, actions = {} }
   vim.api.nvim_buf_create_user_command(buffer, "PajCancel", function()
     if not cancel_request(buffer) then
       vim.notify("No active Paj request in this buffer", vim.log.levels.INFO)
@@ -138,6 +208,18 @@ local function open_output(session)
   vim.api.nvim_buf_create_user_command(buffer, "PajClose", function()
     close_output(buffer)
   end, {})
+  vim.api.nvim_buf_create_user_command(buffer, "PajAccept", function()
+    accept_response(buffer)
+  end, {})
+  vim.api.nvim_buf_create_user_command(buffer, "PajFollowUp", function()
+    follow_up_response(buffer)
+  end, {})
+  vim.keymap.set("n", "a", function()
+    accept_response(buffer)
+  end, { buffer = buffer, silent = true, desc = "Accept a Paj proposed change" })
+  vim.keymap.set("n", "f", function()
+    follow_up_response(buffer)
+  end, { buffer = buffer, silent = true, desc = "Follow up on the Paj response" })
   vim.keymap.set("n", "q", function()
     if not cancel_request(buffer) then
       close_output(buffer)
@@ -155,7 +237,7 @@ local function open_output(session)
   return buffer
 end
 
-local function run_prompt(text, cwd)
+run_prompt = function(text, cwd, target_session)
   if text == "" then
     return
   end
@@ -164,10 +246,12 @@ local function run_prompt(text, cwd)
     return
   end
   cwd = cwd or project_root()
-  resolve_session(cwd, false, function(session)
-    local buffer = open_output(session)
+  local prompt = response.with_contract(text)
+
+  local function start(session)
+    local buffer = open_output(session, cwd)
     local request = requests[buffer]
-    request.job = client.prompt(config, cwd, session, text, {
+    request.job = client.prompt(config, cwd, session, prompt, {
       on_event = function(event)
         if request.cancelled then
           return
@@ -178,8 +262,10 @@ local function run_prompt(text, cwd)
           append_text(buffer, event.text or "")
         elseif event.event == "complete" then
           request.active = false
-          local body = vim.split(event.text or "", "\n", { plain = true })
+          request.response, request.actions = response.parse(event.text or "")
+          local body = vim.split(request.response, "\n", { plain = true })
           set_buffer_lines(buffer, vim.list_extend({ "# Paj · " .. session.name .. " · complete", "" }, body))
+          render_response_actions(buffer)
         elseif event.event == "error" then
           request.active = false
           set_header(buffer, session, "error")
@@ -204,7 +290,13 @@ local function run_prompt(text, cwd)
     if not request.job and not request.cancelled then
       request.active = false
     end
-  end)
+  end
+
+  if target_session then
+    start(target_session)
+  else
+    resolve_session(cwd, false, start)
+  end
 end
 
 local function prompt_command(command)
@@ -248,9 +340,7 @@ local function create_query_footer(row, col, width)
   return buffer, window
 end
 
-local function open_query(command)
-  local captured_source = context.capture(command)
-  local cwd = project_root()
+open_text_input = function(options, on_submit)
   local buffer = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buffer, string.format("paj-query://%d", vim.uv.hrtime()))
   vim.bo[buffer].buftype = "acwrite"
@@ -271,7 +361,7 @@ local function open_query(command)
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Paj query ",
+    title = options.title,
     title_pos = "center",
     zindex = 100,
   })
@@ -280,7 +370,7 @@ local function open_query(command)
 
   local closed = false
   local group = vim.api.nvim_create_augroup("paj_query_" .. buffer, { clear = true })
-  local function close_query()
+  local function close_input()
     if closed then
       return
     end
@@ -305,24 +395,32 @@ local function open_query(command)
       if sent then
         return
       end
-      local query = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n"))
-      if query == "" then
-        vim.notify("Paj query cannot be empty", vim.log.levels.WARN)
+      local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n"))
+      if text == "" then
+        vim.notify(options.empty_message or "Paj input cannot be empty", vim.log.levels.WARN)
         return
       end
       sent = true
       vim.bo[buffer].modified = false
-      close_query()
-      run_prompt(context.query(captured_source, query), cwd)
+      close_input()
+      on_submit(text)
     end,
   })
   vim.api.nvim_create_autocmd("WinClosed", {
     group = group,
     pattern = tostring(window),
-    callback = close_query,
+    callback = close_input,
   })
-  vim.keymap.set("n", "q", close_query, { buffer = buffer, silent = true, nowait = true, desc = "Cancel Paj query" })
+  vim.keymap.set("n", "q", close_input, { buffer = buffer, silent = true, nowait = true, desc = "Cancel Paj input" })
   vim.cmd("startinsert")
+end
+
+local function open_query(command)
+  local captured_source = context.capture(command)
+  local cwd = project_root()
+  open_text_input({ title = " Paj query ", empty_message = "Paj query cannot be empty" }, function(query)
+    run_prompt(context.query(captured_source, query), cwd)
+  end)
 end
 
 function M.setup(options)
