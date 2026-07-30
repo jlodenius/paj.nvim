@@ -322,6 +322,33 @@ vim.cmd("PajPrompt ååa")
 assert(#mock.prompts == before + 1)
 assert(notices[#notices].message:find("exceeds 4 bytes", 1, true) ~= nil)
 
+local valid_size, size_error = pcall(paj.setup, { output_size = 0 })
+assert(not valid_size and size_error:find("output_size must be a number from 1 to 100", 1, true))
+local valid_position, position_error = pcall(paj.setup, { output_position = "center" })
+assert(not valid_position and position_error:find("output_position must be one of", 1, true))
+
+local ui = vim.api.nvim_list_uis()[1] or { width = vim.o.columns, height = vim.o.lines }
+for _, split in ipairs({
+  { position = "left", vertical = true, start = true },
+  { position = "right", vertical = true, start = false },
+  { position = "top", vertical = false, start = true },
+  { position = "bottom", vertical = false, start = false },
+}) do
+  paj.setup({ max_prompt_bytes = 1024, output_position = split.position, output_size = 25 })
+  mock.behavior = "complete"
+  vim.cmd("PajPrompt " .. split.position)
+  local output_window = vim.api.nvim_get_current_win()
+  local window_position = vim.api.nvim_win_get_position(output_window)
+  if split.vertical then
+    assert(vim.api.nvim_win_get_width(output_window) == math.floor(ui.width * 0.25))
+    assert((window_position[2] == 0) == split.start)
+  else
+    assert(vim.api.nvim_win_get_height(output_window) == math.floor(ui.height * 0.25))
+    assert((window_position[1] == 0) == split.start)
+  end
+  vim.cmd("PajClose")
+end
+
 paj.setup({ max_prompt_bytes = 1024 })
 mock.behavior = "error_event"
 vim.cmd("PajPrompt error")

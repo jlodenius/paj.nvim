@@ -7,7 +7,8 @@ local M = {}
 local defaults = {
   command = "paj",
   timeout = 300,
-  output_height = 14,
+  output_size = 30,
+  output_position = "bottom",
   max_prompt_bytes = 200 * 1024,
 }
 
@@ -222,8 +223,21 @@ local function accept_response(buffer)
   }, accept)
 end
 
+local function output_split_size(position)
+  if (position == "top" or position == "bottom") and type(config.output_height) == "number" then
+    return math.max(1, math.floor(config.output_height))
+  end
+  local ui = vim.api.nvim_list_uis()[1] or { width = vim.o.columns, height = vim.o.lines }
+  local dimension = (position == "left" or position == "right") and ui.width or ui.height
+  return math.max(1, math.floor(dimension * config.output_size / 100))
+end
+
 local function open_output(session, cwd)
-  vim.cmd(string.format("botright %dnew", config.output_height))
+  local position = config.output_position
+  local modifier = (position == "top" or position == "left") and "topleft" or "botright"
+  local vertical = position == "left" or position == "right"
+  local command = string.format("%s %s%dnew", modifier, vertical and "vertical " or "", output_split_size(position))
+  vim.cmd(command)
   local buffer = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_set_name(buffer, string.format("paj://%s/%d", session.name, vim.uv.hrtime()))
   vim.bo[buffer].buftype = "nofile"
@@ -522,8 +536,35 @@ local function open_query(command)
   end)
 end
 
+local function validate_config(candidate)
+  if
+    type(candidate.output_size) ~= "number"
+    or candidate.output_size ~= candidate.output_size
+    or candidate.output_size < 1
+    or candidate.output_size > 100
+  then
+    error("paj.nvim: output_size must be a number from 1 to 100")
+  end
+  if not vim.tbl_contains({ "top", "bottom", "left", "right" }, candidate.output_position) then
+    error("paj.nvim: output_position must be one of: top, bottom, left, right")
+  end
+  if
+    candidate.output_height ~= nil
+    and (
+      type(candidate.output_height) ~= "number"
+      or candidate.output_height ~= candidate.output_height
+      or candidate.output_height < 1
+      or candidate.output_height >= math.huge
+    )
+  then
+    error("paj.nvim: output_height must be a positive number")
+  end
+end
+
 function M.setup(options)
-  config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
+  local candidate = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
+  validate_config(candidate)
+  config = candidate
   if configured then
     return
   end

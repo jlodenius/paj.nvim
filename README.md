@@ -72,7 +72,8 @@ Every completed response shows a sticky action footer in its window statusline a
 require("paj").setup({
   command = "paj",
   timeout = 300,
-  output_height = 14,
+  output_size = 30,
+  output_position = "bottom",
   max_prompt_bytes = 200 * 1024,
 })
 ```
@@ -81,8 +82,11 @@ require("paj").setup({
 | --- | --- |
 | `command` | Paj executable name or path |
 | `timeout` | Bridge request timeout in seconds |
-| `output_height` | Height of the response split |
+| `output_size` | Response split size as a percentage from `1` to `100` |
+| `output_position` | Response split position: `"top"`, `"bottom"`, `"left"`, or `"right"` |
 | `max_prompt_bytes` | Maximum prompt size accepted by the plugin |
+
+For top and bottom splits, `output_size` is a percentage of the editor height. For left and right splits, it is a percentage of the editor width.
 
 Prompts are piped directly to `paj bridge prompt --prompt-stdin`; they are not stored in temporary files.
 
