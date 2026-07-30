@@ -147,7 +147,7 @@ render_response_actions = function(buffer)
 
   local footer
   if request.active then
-    footer = "%#Comment#  Paj is working…"
+    footer = "%#Comment#  Paj is working…%=%#WarningMsg#[q]%#Comment# Cancel "
   elseif request.cancelled then
     footer = "%#Comment#  Paj request cancelled%=%#WarningMsg#[q]%#Comment# Close "
   else
@@ -161,11 +161,8 @@ render_response_actions = function(buffer)
       proposal = string.format("%%#WarningMsg#  %d suggested changes", #pending)
       accept = "%#WarningMsg#[a]%#Comment# Choose and accept   "
     end
-    footer = "%<"
-      .. proposal
-      .. "%="
-      .. accept
-      .. "%#WarningMsg#[f]%#Comment# Follow up   %#WarningMsg#[q]%#Comment# Close "
+    local controls = "%#WarningMsg#[f]%#Comment# Follow up   %#WarningMsg#[q]%#Comment# Close "
+    footer = proposal == "" and ("  " .. controls) or ("%<" .. proposal .. "%=" .. accept .. controls)
   end
 
   for _, window in ipairs(vim.api.nvim_list_wins()) do

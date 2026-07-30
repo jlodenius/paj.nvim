@@ -260,6 +260,10 @@ assert(vim.api.nvim_get_current_buf() == proposal_buffer)
 assert(buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(buffer_text(proposal_buffer):find("final\nanswer", 1, true))
+local completed_footer = vim.wo[vim.fn.bufwinid(proposal_buffer)].statusline
+assert(completed_footer:find("[f]", 1, true) and completed_footer:find("Follow up", 1, true))
+assert(completed_footer:find("[q]", 1, true) and completed_footer:find("Close", 1, true))
+assert(not completed_footer:find("[a]", 1, true))
 vim.cmd("PajClose")
 if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.api.nvim_set_current_buf(proposal_buffer)
