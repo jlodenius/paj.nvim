@@ -22,6 +22,17 @@ local function buffer_text(buffer)
   return table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n")
 end
 
+local function output_footer(buffer)
+  local output_window = vim.fn.bufwinid(buffer)
+  for _, window in ipairs(vim.api.nvim_list_wins()) do
+    local window_config = vim.api.nvim_win_get_config(window)
+    if window_config.relative == "win" and window_config.win == output_window then
+      local footer_buffer = vim.api.nvim_win_get_buf(window)
+      return window, footer_buffer, buffer_text(footer_buffer)
+    end
+  end
+end
+
 local function wait_for(predicate)
   assert(vim.wait(3000, predicate, 10), "timed out waiting for asynchronous operation")
 end
@@ -243,10 +254,22 @@ assert(sent_source_data.content == "return first")
 assert(sent_source_data.lines[1] == 2 and sent_source_data.lines[2] == 2)
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
-local proposal_footer = vim.wo[vim.fn.bufwinid(proposal_buffer)].statusline
+local proposal_footer_window, proposal_footer_buffer, proposal_footer = output_footer(proposal_buffer)
+assert(proposal_footer_window and vim.api.nvim_win_get_config(proposal_footer_window).relative == "win")
+assert(vim.api.nvim_win_get_config(proposal_footer_window).row == vim.api.nvim_win_get_height(0) - 1)
 assert(proposal_footer:find("Suggested:", 1, true))
 assert(proposal_footer:find("Change one", 1, true))
 assert(proposal_footer:find("[a]", 1, true))
+local proposal_window = vim.api.nvim_get_current_win()
+for _, window in ipairs(vim.api.nvim_list_wins()) do
+  if window ~= proposal_window and vim.api.nvim_win_get_config(window).relative == "" then
+    vim.api.nvim_set_current_win(window)
+    break
+  end
+end
+vim.api.nvim_set_current_win(proposal_window)
+assert(vim.api.nvim_win_is_valid(proposal_footer_window))
+assert(buffer_text(proposal_footer_buffer):find("[a]", 1, true))
 assert(vim.fn.exists(":PajAccept") == 2)
 assert(vim.fn.exists(":PajFollowUp") == 2)
 mock.behavior = "complete"
@@ -260,11 +283,13 @@ assert(vim.api.nvim_get_current_buf() == proposal_buffer)
 assert(buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(buffer_text(proposal_buffer):find("final\nanswer", 1, true))
-local completed_footer = vim.wo[vim.fn.bufwinid(proposal_buffer)].statusline
+local _, _, completed_footer = output_footer(proposal_buffer)
 assert(completed_footer:find("[f]", 1, true) and completed_footer:find("Follow up", 1, true))
 assert(completed_footer:find("[q]", 1, true) and completed_footer:find("Close", 1, true))
 assert(not completed_footer:find("[a]", 1, true))
 vim.cmd("PajClose")
+assert(not vim.api.nvim_win_is_valid(proposal_footer_window))
+assert(not vim.api.nvim_buf_is_valid(proposal_footer_buffer))
 if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.api.nvim_set_current_buf(proposal_buffer)
   vim.cmd("PajClose")

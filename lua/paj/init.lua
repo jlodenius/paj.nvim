@@ -16,6 +16,7 @@ local config = vim.deepcopy(defaults)
 local selected_sessions = {}
 local requests = {}
 local configured = false
+local footer_namespace = vim.api.nvim_create_namespace("paj.response.footer")
 local open_text_input
 local render_response_actions
 local run_prompt
@@ -133,8 +134,78 @@ local function pending_actions(request)
   end, request.actions or {})
 end
 
-local function statusline_text(text)
-  return text:gsub("%%", "%%%%"):gsub("[\r\n]", " ")
+local function truncate_display(text, width)
+  if width <= 0 then
+    return ""
+  end
+  if vim.fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  local length = vim.fn.strchars(text)
+  while length > 0 do
+    local candidate = vim.fn.strcharpart(text, 0, length) .. "…"
+    if vim.fn.strdisplaywidth(candidate) <= width then
+      return candidate
+    end
+    length = length - 1
+  end
+  return ""
+end
+
+local function update_footer_layout(request)
+  if
+    not request
+    or not request.window
+    or not vim.api.nvim_win_is_valid(request.window)
+    or not request.footer_window
+    or not vim.api.nvim_win_is_valid(request.footer_window)
+  then
+    return
+  end
+  local width = math.max(1, vim.api.nvim_win_get_width(request.window))
+  local row = math.max(0, vim.api.nvim_win_get_height(request.window) - 1)
+  local current = vim.api.nvim_win_get_config(request.footer_window)
+  if current.width ~= width or current.row ~= row then
+    vim.api.nvim_win_set_config(request.footer_window, {
+      relative = "win",
+      win = request.window,
+      row = row,
+      col = 0,
+      width = width,
+      height = 1,
+    })
+  end
+end
+
+local function footer_line(request, width)
+  local left = ""
+  local controls
+  if request.active then
+    left = " Paj is working…"
+    controls = "[q] Cancel "
+  elseif request.cancelled then
+    left = " Paj request cancelled"
+    controls = "[q] Close "
+  else
+    local pending = pending_actions(request)
+    if #pending == 1 then
+      left = " Suggested: " .. pending[1].title
+      controls = "[a] Accept   [f] Follow up   [q] Close "
+    elseif #pending > 1 then
+      left = string.format(" %d suggested changes", #pending)
+      controls = "[a] Choose and accept   [f] Follow up   [q] Close "
+    else
+      controls = "[f] Follow up   [q] Close "
+    end
+  end
+
+  if vim.fn.strdisplaywidth(controls) >= width then
+    return truncate_display(controls, width)
+  end
+  local available = width - vim.fn.strdisplaywidth(controls)
+  left = truncate_display(left, math.max(0, available - 1))
+  local padding = string.rep(" ", math.max(0, width - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(controls)))
+  return left .. padding .. controls
 end
 
 render_response_actions = function(buffer)
@@ -142,35 +213,73 @@ render_response_actions = function(buffer)
     return
   end
   local request = requests[buffer]
-  if not request then
+  if
+    not request
+    or not request.footer_buffer
+    or not vim.api.nvim_buf_is_valid(request.footer_buffer)
+    or not request.footer_window
+    or not vim.api.nvim_win_is_valid(request.footer_window)
+  then
     return
   end
 
-  local footer
-  if request.active then
-    footer = "%#Comment#  Paj is working…%=%#WarningMsg#[q]%#Comment# Cancel "
-  elseif request.cancelled then
-    footer = "%#Comment#  Paj request cancelled%=%#WarningMsg#[q]%#Comment# Close "
-  else
-    local pending = pending_actions(request)
-    local proposal = ""
-    local accept = ""
-    if #pending == 1 then
-      proposal = "%#Comment#  Suggested: %#WarningMsg#" .. statusline_text(pending[1].title)
-      accept = "%#WarningMsg#[a]%#Comment# Accept   "
-    elseif #pending > 1 then
-      proposal = string.format("%%#WarningMsg#  %d suggested changes", #pending)
-      accept = "%#WarningMsg#[a]%#Comment# Choose and accept   "
+  update_footer_layout(request)
+  local width = vim.api.nvim_win_get_width(request.footer_window)
+  local line = footer_line(request, width)
+  vim.bo[request.footer_buffer].modifiable = true
+  vim.api.nvim_buf_set_lines(request.footer_buffer, 0, -1, false, { line })
+  vim.api.nvim_buf_clear_namespace(request.footer_buffer, footer_namespace, 0, -1)
+  for _, key in ipairs({ "[a]", "[f]", "[q]" }) do
+    local start = line:find(key, 1, true)
+    if start then
+      vim.api.nvim_buf_set_extmark(request.footer_buffer, footer_namespace, 0, start - 1, {
+        end_col = start - 1 + #key,
+        hl_group = "WarningMsg",
+      })
     end
-    local controls = "%#WarningMsg#[f]%#Comment# Follow up   %#WarningMsg#[q]%#Comment# Close "
-    footer = proposal == "" and ("  " .. controls) or ("%<" .. proposal .. "%=" .. accept .. controls)
   end
+  vim.bo[request.footer_buffer].modifiable = false
+end
 
-  for _, window in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(window) == buffer then
-      vim.wo[window].statusline = footer
-    end
-  end
+local function create_output_footer(buffer, window)
+  local request = requests[buffer]
+  request.window = window
+  request.footer_buffer = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(request.footer_buffer, string.format("paj-footer://%d", vim.uv.hrtime()))
+  vim.bo[request.footer_buffer].buftype = "nofile"
+  vim.bo[request.footer_buffer].bufhidden = "wipe"
+  vim.bo[request.footer_buffer].swapfile = false
+  vim.wo[window].scrolloff = math.max(vim.wo[window].scrolloff, 1)
+  request.footer_window = vim.api.nvim_open_win(request.footer_buffer, false, {
+    relative = "win",
+    win = window,
+    row = math.max(0, vim.api.nvim_win_get_height(window) - 1),
+    col = 0,
+    width = math.max(1, vim.api.nvim_win_get_width(window)),
+    height = 1,
+    style = "minimal",
+    focusable = false,
+    zindex = 200,
+  })
+  vim.wo[request.footer_window].winhl = "Normal:StatusLine"
+
+  request.group = vim.api.nvim_create_augroup("paj_output_" .. buffer, { clear = true })
+  vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = request.group,
+    callback = function()
+      update_footer_layout(requests[buffer])
+      render_response_actions(buffer)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = request.group,
+    buffer = buffer,
+    callback = function()
+      update_footer_layout(requests[buffer])
+      render_response_actions(buffer)
+    end,
+  })
+  render_response_actions(buffer)
 end
 
 local function follow_up_response(buffer)
@@ -238,6 +347,7 @@ local function open_output(session, cwd)
   local vertical = position == "left" or position == "right"
   local command = string.format("%s %s%dnew", modifier, vertical and "vertical " or "", output_split_size(position))
   vim.cmd(command)
+  local window = vim.api.nvim_get_current_win()
   local buffer = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_set_name(buffer, string.format("paj://%s/%d", session.name, vim.uv.hrtime()))
   vim.bo[buffer].buftype = "nofile"
@@ -275,10 +385,21 @@ local function open_output(session, cwd)
     once = true,
     callback = function()
       cancel_request(buffer, false)
+      local request = requests[buffer]
+      if request and request.footer_window and vim.api.nvim_win_is_valid(request.footer_window) then
+        vim.api.nvim_win_close(request.footer_window, true)
+      end
+      if request and request.footer_buffer and vim.api.nvim_buf_is_valid(request.footer_buffer) then
+        vim.api.nvim_buf_delete(request.footer_buffer, { force = true })
+      end
+      if request and request.group then
+        pcall(vim.api.nvim_del_augroup_by_id, request.group)
+      end
       requests[buffer] = nil
     end,
   })
   set_buffer_lines(buffer, { "# Paj · " .. session.name .. " · connecting", "", "" })
+  create_output_footer(buffer, window)
   return buffer
 end
 
