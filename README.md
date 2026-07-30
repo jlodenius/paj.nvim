@@ -64,7 +64,7 @@ Examples:
 
 While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
 
-Every completed response shows an action footer at the bottom of its buffer and supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. When an agent response recommends one or more concrete changes, the footer also shows an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Follow-up questions, accepted changes, and subsequent agent responses are appended to the existing output buffer as a conversation. Closing a response without accepting simply leaves its proposals unimplemented.
+Every completed response shows a sticky action footer in its window statusline and supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. When an agent response explicitly recommends one or more concrete changes, the footer shows the proposal title and an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Follow-up questions, accepted changes, and subsequent agent responses are appended to the existing output buffer as a conversation. Closing a response without accepting simply leaves its proposals unimplemented.
 
 ## Configuration
 

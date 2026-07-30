@@ -15,8 +15,8 @@ function M.with_contract(prompt)
   return table.concat({
     prompt,
     "",
-    "When you recommend concrete repository changes that you have not implemented, describe them as actions in exactly one metadata block at the very end of your response.",
-    "Keep the response itself as normal Markdown. Do not create an action for explanations, follow-up questions, or changes you already implemented.",
+    "When you recommend concrete repository changes that you have not implemented, state each recommendation explicitly in the visible Markdown and describe it as an action in exactly one metadata block at the very end of your response.",
+    "Every metadata action must correspond to a clearly stated visible recommendation. Never put a proposal only in metadata. Do not create an action merely for mentioning a risk or edge case, or for explanations, follow-up questions, or changes you already implemented.",
     "Use this exact format, with valid JSON and an empty actions array when there are no unimplemented recommendations:",
     start_marker,
     '{"version":1,"actions":[{"id":"short-stable-id","title":"Short title","description":"Precise description of the proposed change"}]}',

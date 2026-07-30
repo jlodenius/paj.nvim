@@ -15,8 +15,8 @@ local config = vim.deepcopy(defaults)
 local selected_sessions = {}
 local requests = {}
 local configured = false
-local action_namespace = vim.api.nvim_create_namespace("paj.response.actions")
 local open_text_input
+local render_response_actions
 local run_prompt
 
 local function project_root()
@@ -114,6 +114,7 @@ local function cancel_request(buffer, update_status)
   end
   if update_status ~= false then
     set_header(buffer, request.session, "cancelled")
+    render_response_actions(buffer)
   end
   return true
 end
@@ -131,30 +132,47 @@ local function pending_actions(request)
   end, request.actions or {})
 end
 
-local function render_response_actions(buffer)
+local function statusline_text(text)
+  return text:gsub("%%", "%%%%"):gsub("[\r\n]", " ")
+end
+
+render_response_actions = function(buffer)
   if not vim.api.nvim_buf_is_valid(buffer) then
     return
   end
-  vim.api.nvim_buf_clear_namespace(buffer, action_namespace, 0, -1)
   local request = requests[buffer]
-  if not request or request.active then
+  if not request then
     return
   end
-  local pending = pending_actions(request)
-  local controls = { { "  ── ", "NonText" } }
-  if #pending > 0 then
-    vim.list_extend(controls, { { "[a]", "WarningMsg" }, { " Accept   ", "Comment" } })
+
+  local footer
+  if request.active then
+    footer = "%#Comment#  Paj is working…"
+  elseif request.cancelled then
+    footer = "%#Comment#  Paj request cancelled%=%#WarningMsg#[q]%#Comment# Close "
+  else
+    local pending = pending_actions(request)
+    local proposal = ""
+    local accept = ""
+    if #pending == 1 then
+      proposal = "%#Comment#  Suggested: %#WarningMsg#" .. statusline_text(pending[1].title)
+      accept = "%#WarningMsg#[a]%#Comment# Accept   "
+    elseif #pending > 1 then
+      proposal = string.format("%%#WarningMsg#  %d suggested changes", #pending)
+      accept = "%#WarningMsg#[a]%#Comment# Choose and accept   "
+    end
+    footer = "%<"
+      .. proposal
+      .. "%="
+      .. accept
+      .. "%#WarningMsg#[f]%#Comment# Follow up   %#WarningMsg#[q]%#Comment# Close "
   end
-  vim.list_extend(controls, {
-    { "[f]", "WarningMsg" },
-    { " Follow up   ", "Comment" },
-    { "[q]", "WarningMsg" },
-    { " Close", "Comment" },
-  })
-  local row = math.max(0, vim.api.nvim_buf_line_count(buffer) - 1)
-  vim.api.nvim_buf_set_extmark(buffer, action_namespace, row, 0, {
-    virt_lines = { controls },
-  })
+
+  for _, window in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(window) == buffer then
+      vim.wo[window].statusline = footer
+    end
+  end
 end
 
 local function follow_up_response(buffer)
@@ -318,7 +336,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
     request.cancelled = false
     request.generation = (request.generation or 0) + 1
     local generation = request.generation
-    vim.api.nvim_buf_clear_namespace(buffer, action_namespace, 0, -1)
+    render_response_actions(buffer)
     append_turn(buffer, entry)
     request.response_start = vim.api.nvim_buf_line_count(buffer) - 1
     if continuing then

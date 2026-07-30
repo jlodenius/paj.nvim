@@ -77,6 +77,7 @@ local response = require("paj.response")
 local contracted = response.with_contract("Explain this")
 assert(contracted:find("Explain this", 1, true))
 assert(contracted:find("<paj-response>", 1, true))
+assert(contracted:find("Every metadata action must correspond to a clearly stated visible recommendation", 1, true))
 local proposal_text = table.concat({
   "I recommend changing the decoder.",
   "",
@@ -238,15 +239,10 @@ assert(sent_source_data.content == "return first")
 assert(sent_source_data.lines[1] == 2 and sent_source_data.lines[2] == 2)
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
-local action_extmarks = vim.api.nvim_buf_get_extmarks(
-  proposal_buffer,
-  vim.api.nvim_get_namespaces()["paj.response.actions"],
-  0,
-  -1,
-  { details = true }
-)
-assert(#action_extmarks == 1 and action_extmarks[1][2] == vim.api.nvim_buf_line_count(proposal_buffer) - 1)
-assert(vim.inspect(action_extmarks[1][4].virt_lines):find("Accept", 1, true))
+local proposal_footer = vim.wo[vim.fn.bufwinid(proposal_buffer)].statusline
+assert(proposal_footer:find("Suggested:", 1, true))
+assert(proposal_footer:find("Change one", 1, true))
+assert(proposal_footer:find("[a]", 1, true))
 assert(vim.fn.exists(":PajAccept") == 2)
 assert(vim.fn.exists(":PajFollowUp") == 2)
 mock.behavior = "complete"
