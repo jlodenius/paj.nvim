@@ -4,6 +4,15 @@ local response = require("paj.response")
 
 local M = {}
 
+---@alias PajOutputPosition "top" | "bottom" | "left" | "right"
+
+---@class PajConfig
+---@field command? string Paj executable name or path
+---@field timeout? number Bridge request timeout in seconds
+---@field output_size? number Output split size as a percentage from 1 to 100
+---@field output_position? PajOutputPosition Output split position
+---@field max_prompt_bytes? number Maximum request content size in bytes
+
 local defaults = {
   command = "paj",
   timeout = 300,
@@ -682,6 +691,7 @@ local function validate_config(candidate)
   end
 end
 
+---@param options? PajConfig
 function M.setup(options)
   local candidate = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
   validate_config(candidate)
