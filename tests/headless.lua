@@ -1,5 +1,8 @@
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 vim.opt.runtimepath:prepend(root)
+if vim.fn.exists("+winborder") == 1 then
+  vim.o.winborder = "rounded"
+end
 
 local function count_plain_occurrences(text, needle)
   assert(needle ~= "", "needle cannot be empty")
@@ -256,6 +259,7 @@ assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
 local proposal_footer_window, proposal_footer_buffer, proposal_footer = output_footer(proposal_buffer)
 assert(proposal_footer_window and vim.api.nvim_win_get_config(proposal_footer_window).relative == "win")
+assert(vim.api.nvim_win_get_config(proposal_footer_window).border == "none")
 assert(vim.api.nvim_win_get_config(proposal_footer_window).row == vim.api.nvim_win_get_height(0) - 1)
 assert(proposal_footer:find("Suggested:", 1, true))
 assert(proposal_footer:find("Change one", 1, true))
@@ -313,6 +317,9 @@ assert(followup_data.question == "Can you clarify?\nBe concise.")
 assert(vim.api.nvim_get_current_buf() == conversation_buffer)
 assert(buffer_text(conversation_buffer):find("## You\n\nCan you clarify?\nBe concise.", 1, true))
 assert(buffer_text(conversation_buffer):find("## Agent\n\nfinal\nanswer", 1, true))
+local followup_footer_window = output_footer(conversation_buffer)
+assert(vim.api.nvim_win_get_config(followup_footer_window).border == "none")
+assert(vim.api.nvim_win_get_config(followup_footer_window).row == vim.api.nvim_win_get_height(0) - 1)
 
 vim.cmd("enew")
 local outside = vim.fn.tempname()

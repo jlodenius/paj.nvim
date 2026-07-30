@@ -267,6 +267,7 @@ local function create_output_footer(buffer, window)
     width = math.max(1, vim.api.nvim_win_get_width(window)),
     height = 1,
     style = "minimal",
+    border = "none",
     focusable = false,
     zindex = 200,
   })
