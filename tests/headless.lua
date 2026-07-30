@@ -2,6 +2,7 @@ local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 vim.opt.runtimepath:prepend(root)
 
 local function count(text, needle)
+  assert(needle ~= "", "needle cannot be empty")
   local total = 0
   local offset = 1
   while true do
@@ -13,6 +14,9 @@ local function count(text, needle)
     offset = found + #needle
   end
 end
+
+local empty_needle_ok, empty_needle_error = pcall(count, "text", "")
+assert(not empty_needle_ok and empty_needle_error:find("needle cannot be empty", 1, true))
 
 local function buffer_text(buffer)
   return table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n")
