@@ -238,6 +238,15 @@ assert(sent_source_data.content == "return first")
 assert(sent_source_data.lines[1] == 2 and sent_source_data.lines[2] == 2)
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
 assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
+local action_extmarks = vim.api.nvim_buf_get_extmarks(
+  proposal_buffer,
+  vim.api.nvim_get_namespaces()["paj.response.actions"],
+  0,
+  -1,
+  { details = true }
+)
+assert(#action_extmarks == 1 and action_extmarks[1][2] == vim.api.nvim_buf_line_count(proposal_buffer) - 1)
+assert(vim.inspect(action_extmarks[1][4].virt_lines):find("Accept", 1, true))
 assert(vim.fn.exists(":PajAccept") == 2)
 assert(vim.fn.exists(":PajFollowUp") == 2)
 mock.behavior = "complete"
@@ -247,6 +256,10 @@ assert(accepted_request.session.id == "two" and accepted_request.cwd == project)
 local accepted_action =
   vim.json.decode(accepted_request.text:match("<accepted%-paj%-action%-json>\n(.-)\n</accepted%-paj%-action%-json>"))
 assert(accepted_action.id == "change-one" and accepted_action.title == "Change one")
+assert(vim.api.nvim_get_current_buf() == proposal_buffer)
+assert(buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
+assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
+assert(buffer_text(proposal_buffer):find("final\nanswer", 1, true))
 vim.cmd("PajClose")
 if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.api.nvim_set_current_buf(proposal_buffer)
@@ -257,6 +270,7 @@ assert(picker_calls == 1)
 assert(mock.prompts[#mock.prompts].session.id == "two")
 assert(mock.prompts[#mock.prompts].cwd == project)
 assert(buffer_text(0) == "# Paj · second · complete\n\nfinal\nanswer")
+local conversation_buffer = vim.api.nvim_get_current_buf()
 vim.cmd("PajFollowUp")
 local followup_buffer = vim.api.nvim_get_current_buf()
 assert(vim.bo[followup_buffer].buftype == "acwrite")
@@ -267,6 +281,9 @@ assert(followup_request.session.id == "two" and followup_request.cwd == project)
 local followup_data =
   vim.json.decode(followup_request.text:match("<user%-followup%-json>\n(.-)\n</user%-followup%-json>"))
 assert(followup_data.question == "Can you clarify?\nBe concise.")
+assert(vim.api.nvim_get_current_buf() == conversation_buffer)
+assert(buffer_text(conversation_buffer):find("## You\n\nCan you clarify?\nBe concise.", 1, true))
+assert(buffer_text(conversation_buffer):find("## Agent\n\nfinal\nanswer", 1, true))
 
 vim.cmd("enew")
 local outside = vim.fn.tempname()

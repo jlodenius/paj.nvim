@@ -141,9 +141,19 @@ local function render_response_actions(buffer)
     return
   end
   local pending = pending_actions(request)
-  local label = #pending > 0 and " a accept · f follow-up · q close" or " f follow-up · q close"
-  vim.api.nvim_buf_set_extmark(buffer, action_namespace, 0, 0, {
-    virt_lines = { { { label, "Comment" } } },
+  local controls = { { "  ── ", "NonText" } }
+  if #pending > 0 then
+    vim.list_extend(controls, { { "[a]", "WarningMsg" }, { " Accept   ", "Comment" } })
+  end
+  vim.list_extend(controls, {
+    { "[f]", "WarningMsg" },
+    { " Follow up   ", "Comment" },
+    { "[q]", "WarningMsg" },
+    { " Close", "Comment" },
+  })
+  local row = math.max(0, vim.api.nvim_buf_line_count(buffer) - 1)
+  vim.api.nvim_buf_set_extmark(buffer, action_namespace, row, 0, {
+    virt_lines = { controls },
   })
 end
 
@@ -154,7 +164,10 @@ local function follow_up_response(buffer)
     return
   end
   open_text_input({ title = " Paj follow-up " }, function(question)
-    run_prompt(response.followup_prompt(question), request.cwd, request.session)
+    run_prompt(response.followup_prompt(question), request.cwd, request.session, buffer, {
+      kind = "followup",
+      text = question,
+    })
   end)
 end
 
@@ -176,7 +189,10 @@ local function accept_response(buffer)
     end
     action.status = "accepted"
     render_response_actions(buffer)
-    run_prompt(response.accept_prompt(action), request.cwd, request.session)
+    run_prompt(response.accept_prompt(action), request.cwd, request.session, buffer, {
+      kind = "accepted",
+      text = action.title,
+    })
   end
 
   if #pending == 1 then
@@ -237,7 +253,49 @@ local function open_output(session, cwd)
   return buffer
 end
 
-run_prompt = function(text, cwd, target_session)
+local function append_turn(buffer, entry)
+  if not entry then
+    return
+  end
+  local lines = { "", "---", "" }
+  if entry.kind == "followup" then
+    vim.list_extend(lines, { "## You", "" })
+    vim.list_extend(lines, vim.split(entry.text, "\n", { plain = true }))
+    vim.list_extend(lines, { "", "## Agent", "", "" })
+  else
+    vim.list_extend(lines, { "## Accepted · " .. entry.text, "", "## Agent", "", "" })
+  end
+  vim.bo[buffer].modifiable = true
+  vim.api.nvim_buf_set_lines(buffer, -1, -1, false, lines)
+  vim.bo[buffer].modifiable = false
+end
+
+local function show_latest_turn(buffer, response_start)
+  for _, window in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(window) == buffer then
+      vim.api.nvim_win_set_cursor(window, { math.max(1, response_start - 1), 0 })
+      vim.api.nvim_win_call(window, function()
+        vim.cmd("normal! zt")
+      end)
+    end
+  end
+end
+
+local function merge_actions(existing, added)
+  local ids = {}
+  for _, action in ipairs(existing) do
+    ids[action.id] = true
+  end
+  for _, action in ipairs(added) do
+    if not ids[action.id] then
+      ids[action.id] = true
+      table.insert(existing, action)
+    end
+  end
+  return existing
+end
+
+run_prompt = function(text, cwd, target_session, target_buffer, entry)
   if text == "" then
     return
   end
@@ -249,11 +307,28 @@ run_prompt = function(text, cwd, target_session)
   local prompt = response.with_contract(text)
 
   local function start(session)
-    local buffer = open_output(session, cwd)
+    local continuing = target_buffer and vim.api.nvim_buf_is_valid(target_buffer)
+    if target_buffer and not continuing then
+      vim.notify("The Paj response buffer is no longer available", vim.log.levels.ERROR)
+      return
+    end
+    local buffer = continuing and target_buffer or open_output(session, cwd)
     local request = requests[buffer]
+    request.active = true
+    request.cancelled = false
+    request.generation = (request.generation or 0) + 1
+    local generation = request.generation
+    vim.api.nvim_buf_clear_namespace(buffer, action_namespace, 0, -1)
+    append_turn(buffer, entry)
+    request.response_start = vim.api.nvim_buf_line_count(buffer) - 1
+    if continuing then
+      show_latest_turn(buffer, request.response_start)
+    end
+    set_header(buffer, session, "connecting")
+
     request.job = client.prompt(config, cwd, session, prompt, {
       on_event = function(event)
-        if request.cancelled then
+        if request.cancelled or request.generation ~= generation then
           return
         end
         if event.event == "accepted" then
@@ -262,29 +337,38 @@ run_prompt = function(text, cwd, target_session)
           append_text(buffer, event.text or "")
         elseif event.event == "complete" then
           request.active = false
-          request.response, request.actions = response.parse(event.text or "")
+          local actions
+          request.response, actions = response.parse(event.text or "")
+          request.actions = continuing and merge_actions(request.actions, actions) or actions
           local body = vim.split(request.response, "\n", { plain = true })
-          set_buffer_lines(buffer, vim.list_extend({ "# Paj · " .. session.name .. " · complete", "" }, body))
+          vim.bo[buffer].modifiable = true
+          vim.api.nvim_buf_set_lines(buffer, request.response_start, -1, false, body)
+          vim.bo[buffer].modifiable = false
+          set_header(buffer, session, "complete")
           render_response_actions(buffer)
         elseif event.event == "error" then
           request.active = false
           set_header(buffer, session, "error")
           append_text(buffer, string.format("\n%s: %s", event.code or "error", event.message or "Unknown bridge error"))
+          render_response_actions(buffer)
         end
       end,
       on_error = function(message)
         vim.schedule(function()
-          if request.cancelled then
+          if request.cancelled or request.generation ~= generation then
             return
           end
           request.active = false
           set_header(buffer, session, "error")
           append_text(buffer, "\n" .. message)
+          render_response_actions(buffer)
           vim.notify(message, vim.log.levels.ERROR)
         end)
       end,
       on_exit = function()
-        request.job = nil
+        if request.generation == generation then
+          request.job = nil
+        end
       end,
     })
     if not request.job and not request.cancelled then
