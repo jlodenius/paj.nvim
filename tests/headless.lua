@@ -9,12 +9,12 @@ local function count_plain_occurrences(text, needle)
   local total = 0
   local offset = 1
   while true do
-    local found = text:find(needle, offset, true)
-    if not found then
+    local start_index = text:find(needle, offset, true)
+    if not start_index then
       return total
     end
     total = total + 1
-    offset = found + #needle
+    offset = start_index + #needle
   end
 end
 
