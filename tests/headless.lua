@@ -92,22 +92,23 @@ assert(not query:find("Why <this>", 1, true))
 assert(query:find('"content":"return one"', 1, true))
 
 local response = require("paj.response")
-local contracted = response.with_contract("Explain this")
-assert(contracted:find("Explain this", 1, true))
-assert(contracted:find("<paj-response>", 1, true))
-assert(contracted:find("Every metadata action must correspond to a clearly stated visible recommendation", 1, true))
-local proposal_text = table.concat({
-  "I recommend changing the decoder.",
-  "",
-  "<paj-response>",
-  '{"version":1,"actions":[{"id":"decoder","title":"Fix decoder","description":"Buffer partial lines."}]}',
-  "</paj-response>",
-}, "\n")
-local clean_response, parsed_actions = response.parse(proposal_text)
-assert(clean_response == "I recommend changing the decoder.")
-assert(#parsed_actions == 1 and parsed_actions[1].id == "decoder")
-local unchanged_response, invalid_actions = response.parse("answer\n<paj-response>{bad}</paj-response>")
-assert(unchanged_response:find("{bad}", 1, true) and #invalid_actions == 0)
+local parsed_actions = response.validate_actions({
+  { id = " decoder ", title = " Fix decoder ", description = " Buffer partial lines. " },
+})
+assert(#parsed_actions == 1 and parsed_actions[1].id == "decoder" and parsed_actions[1].status == "pending")
+assert(#response.validate_actions(nil) == 0)
+assert(#response.validate_actions({ broken = true }) == 0)
+assert(#response.validate_actions({ [2] = { id = "two", title = "Two", description = "Two" } }) == 0)
+assert(#response.validate_actions({
+  { id = "same", title = "One", description = "One" },
+  { id = "same", title = "Two", description = "Two" },
+}) == 0)
+assert(#response.validate_actions({ { id = "", title = "Title", description = "Description" } }) == 0)
+local too_many_actions = {}
+for index = 1, 21 do
+  too_many_actions[index] = { id = tostring(index), title = "Title", description = "Description" }
+end
+assert(#response.validate_actions(too_many_actions) == 0)
 local accepted_prompt = response.accept_prompt({ id = "one", title = "Use <one>", description = "Change & validate" })
 assert(not accepted_prompt:find("Use <one>", 1, true))
 assert(
@@ -129,23 +130,36 @@ function mock.prompt(_, cwd, session, text, handlers)
   if mock.behavior == "complete" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({ event = "delta", text = "streamed" })
-    handlers.on_event({ event = "complete", text = "final\nanswer" })
+    handlers.on_event({ event = "complete", version = 1, id = "request", text = "final\nanswer", actions = {} })
     handlers.on_exit(0)
     return 101
   elseif mock.behavior == "proposal" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({
       event = "complete",
-      text = table.concat({
-        "A change would help.",
-        "",
-        "<paj-response>",
-        '{"version":1,"actions":[{"id":"change-one","title":"Change one","description":"Make the proposed change."}]}',
-        "</paj-response>",
-      }, "\n"),
+      version = 1,
+      id = "request",
+      text = "A change would help.",
+      actions = {
+        { id = "change-one", title = "Change one", description = "Make the proposed change." },
+      },
     })
     handlers.on_exit(0)
     return 104
+  elseif mock.behavior == "malformed_actions" then
+    handlers.on_event({ event = "accepted" })
+    handlers.on_event({
+      event = "complete",
+      version = 1,
+      id = "request",
+      text = "Visible malformed response.",
+      actions = {
+        { id = "duplicate", title = "One", description = "First" },
+        { id = "duplicate", title = "Two", description = "Second" },
+      },
+    })
+    handlers.on_exit(0)
+    return 105
   elseif mock.behavior == "error_event" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({ event = "error", code = "busy", message = "Pi session is busy" })
@@ -255,8 +269,8 @@ local sent_source_data =
   vim.json.decode(sent_query.text:match("<untrusted%-source%-json>\n(.-)\n</untrusted%-source%-json>"))
 assert(sent_source_data.content == "return first")
 assert(sent_source_data.lines[1] == 2 and sent_source_data.lines[2] == 2)
+assert(not sent_query.text:find("<paj-response>", 1, true))
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
-assert(not buffer_text(proposal_buffer):find("<paj-response>", 1, true))
 local proposal_footer_window, proposal_footer_buffer, proposal_footer = output_footer(proposal_buffer)
 assert(proposal_footer_window and vim.api.nvim_win_get_config(proposal_footer_window).relative == "win")
 assert(vim.api.nvim_win_get_config(proposal_footer_window).border == "none")
@@ -298,6 +312,14 @@ if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.api.nvim_set_current_buf(proposal_buffer)
   vim.cmd("PajClose")
 end
+mock.behavior = "malformed_actions"
+vim.cmd("PajPrompt malformed")
+local malformed_buffer = vim.api.nvim_get_current_buf()
+assert(buffer_text(malformed_buffer):find("Visible malformed response.", 1, true))
+local _, _, malformed_footer = output_footer(malformed_buffer)
+assert(malformed_footer:find("[f]", 1, true) and not malformed_footer:find("[a]", 1, true))
+vim.cmd("PajClose")
+mock.behavior = "complete"
 vim.cmd("PajPrompt architecture")
 assert(picker_calls == 1)
 assert(mock.prompts[#mock.prompts].session.id == "two")
@@ -348,8 +370,7 @@ vim.cmd("PajPrompt 12345")
 assert(#mock.prompts == before)
 vim.cmd("PajPrompt åå")
 assert(#mock.prompts == before + 1)
-assert(mock.prompts[#mock.prompts].text:sub(1, 4) == "åå")
-assert(mock.prompts[#mock.prompts].text:find("<paj-response>", 1, true))
+assert(mock.prompts[#mock.prompts].text == "åå")
 vim.cmd("PajPrompt ååa")
 assert(#mock.prompts == before + 1)
 assert(notices[#notices].message:find("exceeds 4 bytes", 1, true) ~= nil)
@@ -429,7 +450,7 @@ local script = table.concat({
   "cat > " .. vim.fn.shellescape(capture),
   'printf \'%s\\n\' \'{"event":"accepted","id":"request"}\'',
   'printf \'%s\\n\' \'{"event":"delta","text":"part"}\'',
-  'printf \'%s\\n\' \'{"event":"complete","text":"whole"}\'',
+  'printf \'%s\\n\' \'{"event":"complete","version":1,"id":"request","text":"whole","actions":[]}\'',
 }, "\n")
 vim.fn.writefile(vim.split(script, "\n", { plain = true }), fake_paj)
 vim.uv.fs_chmod(fake_paj, 493)

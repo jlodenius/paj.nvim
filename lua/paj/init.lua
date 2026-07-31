@@ -464,7 +464,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
     return
   end
   cwd = cwd or project_root()
-  local prompt = response.with_contract(text)
+  local prompt = text
 
   local function start(session)
     local continuing = target_buffer and vim.api.nvim_buf_is_valid(target_buffer)
@@ -497,8 +497,8 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
           append_text(buffer, event.text or "")
         elseif event.event == "complete" then
           request.active = false
-          local actions
-          request.response, actions = response.parse(event.text or "")
+          request.response = type(event.text) == "string" and event.text or ""
+          local actions = response.validate_actions(event.actions)
           request.actions = continuing and merge_actions(request.actions, actions) or actions
           local body = vim.split(request.response, "\n", { plain = true })
           vim.bo[buffer].modifiable = true

@@ -5,8 +5,10 @@ Neovim client for the [Paj](https://github.com/jlodenius/paj) Unix-socket bridge
 ## Requirements
 
 - Neovim 0.10 or newer
-- `paj` on `PATH`
-- A live Pi session with the Paj extension enabled
+- A current `paj` CLI on `PATH`
+- A live Pi session with the current Paj extension enabled
+
+The CLI, extension, and plugin must be updated together; older Paj versions do not provide the native structured actions this plugin expects.
 
 ## Installation
 
@@ -64,7 +66,7 @@ Examples:
 
 While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
 
-Every completed response shows a sticky action footer pinned to the bottom of its output window and supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. When an agent response explicitly recommends one or more concrete changes, the footer shows the proposal title and an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Follow-up questions, accepted changes, and subsequent agent responses are appended to the existing output buffer as a conversation. Closing a response without accepting simply leaves its proposals unimplemented.
+Every completed response shows a sticky action footer pinned to the bottom of its output window and supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. Paj supplies proposed changes as native structured actions alongside ordinary Markdown response text; the plugin does not parse hidden Markdown metadata. When a response includes one or more proposals, the footer shows the proposal title and an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Follow-up questions, accepted changes, and subsequent agent responses are appended to the existing output buffer as a conversation. Closing a response without accepting simply leaves its proposals unimplemented.
 
 ## Configuration
 
