@@ -23,6 +23,7 @@ local defaults = {
 
 local config = vim.deepcopy(defaults)
 local selected_sessions = {}
+local automatic_sessions = {}
 local requests = {}
 local configured = false
 local footer_namespace = vim.api.nvim_create_namespace("paj.response.footer")
@@ -40,14 +41,14 @@ local function session_label(session)
   return string.format("%s [%s] %s%s", session.name, session.role, branch, task)
 end
 
-local function choose_session(cwd, sessions, remember, callback)
+local function choose_session(cwd, sessions, remembered, callback)
   if #sessions == 0 then
     vim.notify("No live Paj sessions found for this project", vim.log.levels.WARN)
     return
   end
   if #sessions == 1 then
-    if remember then
-      selected_sessions[cwd] = sessions[1].id
+    if remembered then
+      remembered[cwd] = sessions[1].id
     end
     callback(sessions[1])
     return
@@ -59,8 +60,8 @@ local function choose_session(cwd, sessions, remember, callback)
     if not session then
       return
     end
-    if remember then
-      selected_sessions[cwd] = session.id
+    if remembered then
+      remembered[cwd] = session.id
     end
     callback(session)
   end)
@@ -76,7 +77,7 @@ local function resolve_session(cwd, force_picker, callback)
       return session.bridgeSocket ~= nil
     end, sessions)
     if force_picker then
-      choose_session(cwd, bridged, true, callback)
+      choose_session(cwd, bridged, selected_sessions, callback)
       return
     end
 
@@ -94,7 +95,24 @@ local function resolve_session(cwd, force_picker, callback)
     local primaries = vim.tbl_filter(function(session)
       return session.role == "primary"
     end, bridged)
-    choose_session(cwd, #primaries > 0 and primaries or bridged, false, callback)
+    if #primaries == 1 then
+      automatic_sessions[cwd] = nil
+      callback(primaries[1])
+      return
+    end
+
+    local candidates = #primaries > 0 and primaries or bridged
+    local automatic = automatic_sessions[cwd]
+    if automatic then
+      for _, session in ipairs(candidates) do
+        if session.id == automatic then
+          callback(session)
+          return
+        end
+      end
+      automatic_sessions[cwd] = nil
+    end
+    choose_session(cwd, candidates, automatic_sessions, callback)
   end)
 end
 

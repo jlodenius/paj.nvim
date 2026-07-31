@@ -226,6 +226,19 @@ vim.cmd("PajPrompt multiple-primaries")
 assert(mock.last_cwd == multiple_primary_project)
 assert(mock.prompts[#mock.prompts].session.id == "primary-two")
 vim.cmd("PajClose")
+vim.ui.select = function()
+  error("an automatic primary choice should be remembered")
+end
+vim.cmd("PajPrompt remembered-primary")
+assert(mock.prompts[#mock.prompts].session.id == "primary-two")
+vim.cmd("PajClose")
+mock.sessions = {
+  { id = "primary-one", name = "main-one", role = "primary", bridgeSocket = "/primary-one" },
+  { id = "subagent", name = "child", role = "subagent", bridgeSocket = "/subagent" },
+}
+vim.cmd("PajPrompt changed-to-sole-primary")
+assert(mock.prompts[#mock.prompts].session.id == "primary-one")
+vim.cmd("PajClose")
 
 local fallback_project = open_project()
 mock.sessions = {
@@ -245,13 +258,25 @@ vim.cmd("PajClose")
 local override_project = open_project()
 mock.sessions = {
   { id = "override-primary", name = "main", role = "primary", bridgeSocket = "/override-primary" },
+  { id = "override-primary-two", name = "main-two", role = "primary", bridgeSocket = "/override-primary-two" },
   { id = "override-subagent", name = "child", role = "subagent", bridgeSocket = "/override-subagent" },
 }
+local override_picker_calls = 0
 vim.ui.select = function(items, _, callback)
-  assert(#items == 2)
-  callback(items[2])
+  override_picker_calls = override_picker_calls + 1
+  if override_picker_calls == 1 then
+    assert(#items == 2)
+    callback(items[1])
+  else
+    assert(#items == 3)
+    callback(items[3])
+  end
 end
+vim.cmd("PajPrompt cache-primary-before-override")
+assert(mock.prompts[#mock.prompts].session.id == "override-primary")
+vim.cmd("PajClose")
 vim.cmd("PajSessions")
+assert(override_picker_calls == 2)
 vim.ui.select = function()
   error("an explicit live selection should be remembered")
 end
