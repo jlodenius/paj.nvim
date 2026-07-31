@@ -38,7 +38,9 @@ Start Pi in the same project as Neovim, then send a prompt:
 :PajPrompt Explain the repository architecture
 ```
 
-Paj selects the only available session automatically. When multiple sessions are available, it opens `vim.ui.select` with each session's name, role, branch, and task. The selection is remembered per project. Use `:PajSessions` to choose a different session.
+Paj automatically targets bridged sessions with the `primary` role. When exactly one primary is available, it is selected even if subagents are also running; when multiple primaries are available, Paj opens `vim.ui.select` for those primary sessions. If no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries show each session's name, role, branch, and task.
+
+Use `:PajSessions` to explicitly choose any bridged session, including a subagent. That override is remembered per project while Neovim is running; if the selected session disappears, normal primary selection resumes.
 
 ### Commands
 

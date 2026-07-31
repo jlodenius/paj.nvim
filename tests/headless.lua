@@ -188,6 +188,93 @@ assert(vim.fn.exists(":PajQuery") == 2)
 assert(vim.fn.exists(":PajExplain") == 2)
 assert(vim.fn.exists(":PajReview") == 2)
 
+local function open_project()
+  local path = vim.fn.tempname()
+  vim.fn.mkdir(path .. "/.git", "p")
+  vim.cmd("enew")
+  vim.api.nvim_buf_set_name(0, path .. "/example.lua")
+  return path
+end
+
+local original_resolution_select = vim.ui.select
+local primary_project = open_project()
+mock.sessions = {
+  { id = "primary", name = "main", role = "primary", bridgeSocket = "/primary" },
+  { id = "sub-one", name = "child-one", role = "subagent", bridgeSocket = "/sub-one" },
+  { id = "sub-two", name = "child-two", role = "subagent", bridgeSocket = "/sub-two" },
+}
+vim.ui.select = function()
+  error("a sole primary should not open a picker")
+end
+vim.cmd("PajPrompt sole-primary")
+assert(mock.last_cwd == primary_project)
+assert(mock.prompts[#mock.prompts].session.id == "primary")
+vim.cmd("PajClose")
+
+local multiple_primary_project = open_project()
+mock.sessions = {
+  { id = "primary-one", name = "main-one", role = "primary", bridgeSocket = "/primary-one" },
+  { id = "subagent", name = "child", role = "subagent", bridgeSocket = "/subagent" },
+  { id = "primary-two", name = "main-two", role = "primary", bridgeSocket = "/primary-two" },
+}
+vim.ui.select = function(items, _, callback)
+  assert(#items == 2)
+  assert(items[1].id == "primary-one" and items[2].id == "primary-two")
+  callback(items[2])
+end
+vim.cmd("PajPrompt multiple-primaries")
+assert(mock.last_cwd == multiple_primary_project)
+assert(mock.prompts[#mock.prompts].session.id == "primary-two")
+vim.cmd("PajClose")
+
+local fallback_project = open_project()
+mock.sessions = {
+  { id = "fallback-one", name = "child-one", role = "subagent", bridgeSocket = "/fallback-one" },
+  { id = "fallback-two", name = "child-two", role = "subagent", bridgeSocket = "/fallback-two" },
+}
+vim.ui.select = function(items, _, callback)
+  assert(#items == 2)
+  assert(items[1].id == "fallback-one" and items[2].id == "fallback-two")
+  callback(items[1])
+end
+vim.cmd("PajPrompt no-primary")
+assert(mock.last_cwd == fallback_project)
+assert(mock.prompts[#mock.prompts].session.id == "fallback-one")
+vim.cmd("PajClose")
+
+local override_project = open_project()
+mock.sessions = {
+  { id = "override-primary", name = "main", role = "primary", bridgeSocket = "/override-primary" },
+  { id = "override-subagent", name = "child", role = "subagent", bridgeSocket = "/override-subagent" },
+}
+vim.ui.select = function(items, _, callback)
+  assert(#items == 2)
+  callback(items[2])
+end
+vim.cmd("PajSessions")
+vim.ui.select = function()
+  error("an explicit live selection should be remembered")
+end
+vim.cmd("PajPrompt explicit-subagent")
+assert(mock.last_cwd == override_project)
+assert(mock.prompts[#mock.prompts].session.id == "override-subagent")
+vim.cmd("PajClose")
+vim.cmd("PajPrompt remembered-subagent")
+assert(mock.prompts[#mock.prompts].session.id == "override-subagent")
+vim.cmd("PajClose")
+
+mock.sessions = {
+  { id = "replacement-primary", name = "replacement", role = "primary", bridgeSocket = "/replacement-primary" },
+  { id = "replacement-subagent", name = "child", role = "subagent", bridgeSocket = "/replacement-subagent" },
+}
+vim.ui.select = function()
+  error("a stale selection should fall back to the sole primary")
+end
+vim.cmd("PajPrompt stale-selection")
+assert(mock.prompts[#mock.prompts].session.id == "replacement-primary")
+vim.cmd("PajClose")
+vim.ui.select = original_resolution_select
+
 local project = vim.fn.tempname()
 vim.fn.mkdir(project .. "/.git", "p")
 vim.fn.mkdir(project .. "/lua", "p")
@@ -206,7 +293,7 @@ mock.sessions = {
   {
     id = "two",
     name = "second",
-    role = "reviewer",
+    role = "subagent",
     status = "idle",
     branch = "topic",
     task = "review",
@@ -221,7 +308,7 @@ vim.ui.select = function(items, options, callback)
   assert(#items == 2)
   assert(options.format_item(items[1]) == "first [primary] no branch")
   local label = options.format_item(items[2])
-  assert(label == "second [reviewer] topic — review")
+  assert(label == "second [subagent] topic — review")
   assert(not label:find("idle", 1, true))
   callback(items[2])
 end

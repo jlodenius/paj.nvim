@@ -40,13 +40,15 @@ local function session_label(session)
   return string.format("%s [%s] %s%s", session.name, session.role, branch, task)
 end
 
-local function choose_session(cwd, sessions, callback)
+local function choose_session(cwd, sessions, remember, callback)
   if #sessions == 0 then
     vim.notify("No live Paj sessions found for this project", vim.log.levels.WARN)
     return
   end
   if #sessions == 1 then
-    selected_sessions[cwd] = sessions[1].id
+    if remember then
+      selected_sessions[cwd] = sessions[1].id
+    end
     callback(sessions[1])
     return
   end
@@ -57,7 +59,9 @@ local function choose_session(cwd, sessions, callback)
     if not session then
       return
     end
-    selected_sessions[cwd] = session.id
+    if remember then
+      selected_sessions[cwd] = session.id
+    end
     callback(session)
   end)
 end
@@ -71,16 +75,26 @@ local function resolve_session(cwd, force_picker, callback)
     local bridged = vim.tbl_filter(function(session)
       return session.bridgeSocket ~= nil
     end, sessions)
+    if force_picker then
+      choose_session(cwd, bridged, true, callback)
+      return
+    end
+
     local selected = selected_sessions[cwd]
-    if selected and not force_picker then
+    if selected then
       for _, session in ipairs(bridged) do
         if session.id == selected then
           callback(session)
           return
         end
       end
+      selected_sessions[cwd] = nil
     end
-    choose_session(cwd, bridged, callback)
+
+    local primaries = vim.tbl_filter(function(session)
+      return session.role == "primary"
+    end, bridged)
+    choose_session(cwd, #primaries > 0 and primaries or bridged, false, callback)
   end)
 end
 
