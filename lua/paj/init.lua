@@ -198,7 +198,6 @@ local function footer_line(request, width)
   else
     local pending = pending_actions(request)
     if #pending == 1 then
-      left = " Suggested: " .. pending[1].title
       controls = "[a] Accept   [f] Follow up   [q] Close "
     elseif #pending > 1 then
       left = string.format(" %d suggested changes", #pending)

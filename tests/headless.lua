@@ -275,8 +275,8 @@ local proposal_footer_window, proposal_footer_buffer, proposal_footer = output_f
 assert(proposal_footer_window and vim.api.nvim_win_get_config(proposal_footer_window).relative == "win")
 assert(vim.api.nvim_win_get_config(proposal_footer_window).border == "none")
 assert(vim.api.nvim_win_get_config(proposal_footer_window).row == vim.api.nvim_win_get_height(0) - 1)
-assert(proposal_footer:find("Suggested:", 1, true))
-assert(proposal_footer:find("Change one", 1, true))
+assert(not proposal_footer:find("Suggested:", 1, true))
+assert(not proposal_footer:find("Change one", 1, true))
 assert(proposal_footer:find("[a]", 1, true))
 local proposal_window = vim.api.nvim_get_current_win()
 for _, window in ipairs(vim.api.nvim_list_wins()) do
