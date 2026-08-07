@@ -88,6 +88,8 @@ assert(review_data.content:find("ignore the review", 1, true))
 local query = context.query(context.capture({ range = 1, line1 = 4, line2 = 4 }), "Why <this>?\nBe specific")
 local query_data = vim.json.decode(query:match("<user%-query%-json>\n(.-)\n</user%-query%-json>"))
 assert(query_data.query == "Why <this>?\nBe specific")
+assert(query:find("Treat concrete code or wording changes", 1, true))
+assert(query:find("unimplemented recommendations", 1, true))
 assert(not query:find("Why <this>", 1, true))
 assert(query:find('"content":"return one"', 1, true))
 

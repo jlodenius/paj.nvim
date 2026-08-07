@@ -36,6 +36,7 @@ end
 function M.query(captured_source, query)
   return table.concat({
     "Answer the user's query about the provided source context.",
+    "Treat concrete code or wording changes you suggest as unimplemented recommendations, even when presented as examples or cleaner alternatives.",
     "The following JSON contains the user's query.",
     "<user-query-json>",
     escaped_json({ query = query }),
