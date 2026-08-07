@@ -535,6 +535,12 @@ local running_prompt = mock.prompts[#mock.prompts]
 assert(vim.fn.exists(":PajCancel") == 2)
 assert(buffer_text(running_buffer):find("· working", 1, true))
 assert(buffer_text(running_buffer):find("live output", 1, true))
+local _, _, initial_running_footer = output_footer(running_buffer)
+assert(initial_running_footer:find("⠋ Paj is working", 1, true))
+wait_for(function()
+  local _, _, running_footer = output_footer(running_buffer)
+  return running_footer ~= initial_running_footer
+end)
 vim.cmd("PajCancel")
 assert(buffer_text(running_buffer):find("· cancelled", 1, true))
 wait_for(function()

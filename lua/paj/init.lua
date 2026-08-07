@@ -30,6 +30,40 @@ local footer_namespace = vim.api.nvim_create_namespace("paj.response.footer")
 local open_text_input
 local render_response_actions
 local run_prompt
+local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+local function stop_spinner(request)
+  local timer = request and request.spinner_timer
+  if timer and not timer:is_closing() then
+    timer:stop()
+    timer:close()
+  end
+  if request then
+    request.spinner_timer = nil
+  end
+end
+
+local function start_spinner(buffer, request)
+  stop_spinner(request)
+  request.spinner_frame = 1
+  local timer = vim.uv.new_timer()
+  request.spinner_timer = timer
+  timer:start(
+    80,
+    80,
+    vim.schedule_wrap(function()
+      if request.spinner_timer ~= timer then
+        return
+      end
+      if requests[buffer] ~= request or not request.active then
+        stop_spinner(request)
+        return
+      end
+      request.spinner_frame = request.spinner_frame % #spinner_frames + 1
+      render_response_actions(buffer)
+    end)
+  )
+end
 
 local function project_root()
   return vim.fs.root(0, ".git") or vim.uv.cwd()
@@ -152,6 +186,7 @@ local function cancel_request(buffer, update_status)
   end
   request.active = false
   request.cancelled = true
+  stop_spinner(request)
   if request.job then
     vim.fn.jobstop(request.job)
   end
@@ -222,7 +257,7 @@ local function footer_line(request, width)
   local left = ""
   local controls
   if request.active then
-    left = " Paj is working…"
+    left = string.format(" %s Paj is working", spinner_frames[request.spinner_frame or 1])
     controls = "[q] Cancel "
   elseif request.cancelled then
     left = " Paj request cancelled"
@@ -509,6 +544,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
     request.cancelled = false
     request.generation = (request.generation or 0) + 1
     local generation = request.generation
+    start_spinner(buffer, request)
     render_response_actions(buffer)
     append_turn(buffer, entry)
     request.response_start = vim.api.nvim_buf_line_count(buffer) - 1
@@ -528,6 +564,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
           append_text(buffer, event.text or "")
         elseif event.event == "complete" then
           request.active = false
+          stop_spinner(request)
           request.response = type(event.text) == "string" and event.text or ""
           local actions = response.validate_actions(event.actions)
           request.actions = continuing and merge_actions(request.actions, actions) or actions
@@ -539,6 +576,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
           render_response_actions(buffer)
         elseif event.event == "error" then
           request.active = false
+          stop_spinner(request)
           set_header(buffer, session, "error")
           append_text(buffer, string.format("\n%s: %s", event.code or "error", event.message or "Unknown bridge error"))
           render_response_actions(buffer)
@@ -550,6 +588,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
             return
           end
           request.active = false
+          stop_spinner(request)
           set_header(buffer, session, "error")
           append_text(buffer, "\n" .. message)
           render_response_actions(buffer)
@@ -564,6 +603,8 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
     })
     if not request.job and not request.cancelled then
       request.active = false
+      stop_spinner(request)
+      render_response_actions(buffer)
     end
   end
 
