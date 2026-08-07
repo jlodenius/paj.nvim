@@ -31,7 +31,7 @@ function M.list_sessions(config, cwd, callback)
   end)
 end
 
-function M.prompt(config, cwd, session, text, handlers)
+function M.request(config, cwd, session, request, handlers)
   local command, err = executable(config)
   if not command then
     handlers.on_error(err)
@@ -52,9 +52,9 @@ function M.prompt(config, cwd, session, text, handlers)
     command,
     "--json",
     "bridge",
-    "prompt",
+    "request",
     session.id,
-    "--prompt-stdin",
+    "--request-stdin",
     "--timeout",
     tostring(config.timeout),
   }, {
@@ -90,9 +90,9 @@ function M.prompt(config, cwd, session, text, handlers)
     handlers.on_error("Failed to start Paj bridge client")
     return
   end
-  if vim.fn.chansend(job, text) == 0 then
+  if vim.fn.chansend(job, vim.json.encode(request)) == 0 then
     vim.fn.jobstop(job)
-    handlers.on_error("Failed to send prompt to Paj bridge client")
+    handlers.on_error("Failed to send request to Paj bridge client")
     return
   end
   vim.fn.chanclose(job, "stdin")

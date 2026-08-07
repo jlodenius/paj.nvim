@@ -11,14 +11,14 @@ local M = {}
 ---@field timeout? number Bridge request timeout in seconds
 ---@field output_size? number Output split size as a percentage from 1 to 100
 ---@field output_position? PajOutputPosition Output split position
----@field max_prompt_bytes? number Maximum request content size in bytes
+---@field max_request_bytes? number Maximum encoded request size in bytes
 
 local defaults = {
   command = "paj",
   timeout = 300,
   output_size = 30,
   output_position = "bottom",
-  max_prompt_bytes = 200 * 1024,
+  max_request_bytes = 200 * 1024,
 }
 
 local config = vim.deepcopy(defaults)
@@ -29,7 +29,7 @@ local configured = false
 local footer_namespace = vim.api.nvim_create_namespace("paj.response.footer")
 local open_text_input
 local render_response_actions
-local run_prompt
+local run_request
 local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
 local function stop_spinner(request)
@@ -365,7 +365,7 @@ local function follow_up_response(buffer)
     return
   end
   open_text_input({ title = " Paj follow-up " }, function(question)
-    run_prompt(response.followup_prompt(question), request.cwd, request.session, buffer, {
+    run_request(response.followup_request(question), request.cwd, request.session, buffer, {
       kind = "followup",
       text = question,
     })
@@ -390,7 +390,7 @@ local function accept_response(buffer)
     end
     action.status = "accepted"
     render_response_actions(buffer)
-    run_prompt(response.accept_prompt(action), request.cwd, request.session, buffer, {
+    run_request(response.accept_request(action), request.cwd, request.session, buffer, {
       kind = "accepted",
       text = action.title,
     })
@@ -521,16 +521,13 @@ local function merge_actions(existing, added)
   return existing
 end
 
-run_prompt = function(text, cwd, target_session, target_buffer, entry)
-  if text == "" then
-    return
-  end
-  if #text > config.max_prompt_bytes then
-    vim.notify(string.format("Paj prompt exceeds %d bytes", config.max_prompt_bytes), vim.log.levels.ERROR)
+run_request = function(editor_request, cwd, target_session, target_buffer, entry)
+  local encoded = vim.json.encode(editor_request)
+  if #encoded > config.max_request_bytes then
+    vim.notify(string.format("Paj request exceeds %d bytes", config.max_request_bytes), vim.log.levels.ERROR)
     return
   end
   cwd = cwd or project_root()
-  local prompt = text
 
   local function start(session)
     local continuing = target_buffer and vim.api.nvim_buf_is_valid(target_buffer)
@@ -553,7 +550,7 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
     end
     set_header(buffer, session, "connecting")
 
-    request.job = client.prompt(config, cwd, session, prompt, {
+    request.job = client.request(config, cwd, session, editor_request, {
       on_event = function(event)
         if request.cancelled or request.generation ~= generation then
           return
@@ -613,18 +610,6 @@ run_prompt = function(text, cwd, target_session, target_buffer, entry)
   else
     resolve_session(cwd, false, start)
   end
-end
-
-local function prompt_command(command)
-  if command.args ~= "" then
-    run_prompt(command.args)
-    return
-  end
-  vim.ui.input({ prompt = "Paj prompt: " }, function(input)
-    if input then
-      run_prompt(input)
-    end
-  end)
 end
 
 local function create_query_footer(row, col, width)
@@ -735,7 +720,7 @@ local function open_query(command)
   local captured_source = context.capture(command)
   local cwd = project_root()
   open_text_input({ title = " Paj query ", empty_message = "Paj query cannot be empty" }, function(query)
-    run_prompt(context.query(captured_source, query), cwd)
+    run_request(context.query(captured_source, query), cwd)
   end)
 end
 
@@ -786,16 +771,15 @@ function M.setup(options)
       vim.notify("Paj attached to " .. session.name, vim.log.levels.INFO)
     end)
   end, {})
-  vim.api.nvim_create_user_command("PajPrompt", prompt_command, { nargs = "*" })
   vim.api.nvim_create_user_command("PajQuery", open_query, { range = true })
   vim.api.nvim_create_user_command("PajExplain", function(command)
-    run_prompt(context.explain(command))
+    run_request(context.explain(command))
   end, {
     nargs = "*",
     range = true,
   })
   vim.api.nvim_create_user_command("PajReview", function(command)
-    run_prompt(context.review(command))
+    run_request(context.review(command))
   end, {
     nargs = "*",
     range = true,

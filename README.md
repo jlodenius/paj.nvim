@@ -32,10 +32,11 @@ Or add the repository to `runtimepath` and call `require("paj").setup()`.
 
 ## Usage
 
-Start Pi in the same project as Neovim, then send a prompt:
+Start Pi in the same project as Neovim, then query or review editor source:
 
 ```vim
-:PajPrompt Explain the repository architecture
+:%PajQuery
+:'<,'>PajReview
 ```
 
 Paj automatically targets bridged sessions with the `primary` role. When exactly one primary is available, it is selected even if subagents are also running; when multiple primaries are available, Paj opens `vim.ui.select` for those primary sessions and remembers the choice per project while it remains a candidate. If the topology changes to a sole primary, that session is selected instead. If no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries show each session's name, role, branch, and task.
@@ -48,7 +49,6 @@ Use `:PajSessions` to explicitly choose any bridged session, including a subagen
 | --- | --- |
 | `:PajSessions` | Select the target Pi session for the current project |
 | `:PajAttach` | Alias for `:PajSessions` |
-| `:PajPrompt [prompt]` | Send a prompt, opening an input when no argument is given |
 | `:[range]PajQuery` | Open an editable floating query for the selected lines or entire buffer; write it to send |
 | `:[range]PajExplain [focus]` | Explain the selected lines, or the entire buffer without a range |
 | `:[range]PajReview [focus]` | Review the selected lines, or the entire buffer without a range |
@@ -62,9 +62,9 @@ Examples:
 :PajReview focus on concurrency
 ```
 
-`PajQuery` opens a centered multiline floating buffer with a `:w=submit q=cancel` footer. Enter a question and use `:write` to send it, or press `q` in normal mode to cancel. The sent prompt clearly separates the query from the source context.
+`PajQuery` opens a centered multiline floating buffer with a `:w=submit q=cancel` footer. Enter a question and use `:write` to send it, or press `q` in normal mode to cancel.
 
-`PajQuery`, `PajExplain`, and `PajReview` include the source path, line range, and buffer content as escaped, explicitly untrusted JSON data. With no range they use the entire current buffer. Responses stream into a temporary Markdown scratch buffer.
+`PajQuery`, `PajExplain`, and `PajReview` send the source path, line range, and buffer content as a structured editor request. With no range they use the entire current buffer. The Pi extension retains that structure and exposes the source to the agent as untrusted data through the read-only `paj_editor_context` tool. Query, explanation, review, and follow-up turns cannot use mutation-capable tools. Responses stream into a temporary Markdown scratch buffer.
 
 While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
 
@@ -78,7 +78,7 @@ require("paj").setup({
   timeout = 300,
   output_size = 30,
   output_position = "bottom",
-  max_prompt_bytes = 200 * 1024,
+  max_request_bytes = 200 * 1024,
 })
 ```
 
@@ -88,11 +88,11 @@ require("paj").setup({
 | `timeout` | Bridge request timeout in seconds |
 | `output_size` | Response split size as a percentage from `1` to `100` |
 | `output_position` | Response split position: `"top"`, `"bottom"`, `"left"`, or `"right"` |
-| `max_prompt_bytes` | Maximum prompt size accepted by the plugin |
+| `max_request_bytes` | Maximum encoded editor request size accepted by the plugin |
 
 For top and bottom splits, `output_size` is a percentage of the editor height. For left and right splits, it is a percentage of the editor width.
 
-Prompts are piped directly to `paj bridge prompt --prompt-stdin`; they are not stored in temporary files.
+Requests are encoded as JSON and piped directly to `paj bridge request --request-stdin`; they are not stored in temporary files.
 
 ## Troubleshooting
 
@@ -126,7 +126,7 @@ In the request's output buffer, run `:PajCancel` or press `q`. Cancellation stop
 
 ### Request times out
 
-Increase `timeout` in `setup()` for prompts that need longer to complete. The value is forwarded to `paj bridge prompt --timeout`.
+Increase `timeout` in `setup()` for requests that need longer to complete. The value is forwarded to `paj bridge request --timeout`.
 
 ## Development
 
