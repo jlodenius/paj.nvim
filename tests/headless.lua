@@ -229,6 +229,24 @@ vim.cmd("PajExplain changed-to-sole-primary")
 assert(mock.requests[#mock.requests].session.id == "primary-one")
 vim.cmd("PajClose")
 
+local unbridged_project = open_project()
+mock.sessions = vim.json.decode([[
+  [
+    {"id":"null","name":"null","role":"primary","bridgeSocket":null},
+    {"id":"missing","name":"missing","role":"primary"},
+    {"id":"empty","name":"empty","role":"primary","bridgeSocket":""},
+    {"id":"child","name":"child","role":"subagent","bridgeSocket":"/child"}
+  ]
+]])
+vim.ui.select = function()
+  error("unbridged sessions must not appear in the picker")
+end
+vim.cmd("PajExplain bridged-fallback")
+assert(mock.last_cwd == unbridged_project)
+assert(mock.requests[#mock.requests].session.id == "child")
+vim.cmd("PajClose")
+vim.cmd("PajSessions")
+
 local fallback_project = open_project()
 mock.sessions = {
   { id = "fallback-one", name = "child-one", role = "subagent", bridgeSocket = "/fallback-one" },

@@ -108,7 +108,7 @@ local function resolve_session(cwd, force_picker, callback)
       return
     end
     local bridged = vim.tbl_filter(function(session)
-      return session.bridgeSocket ~= nil
+      return type(session.bridgeSocket) == "string" and session.bridgeSocket ~= ""
     end, sessions)
     if force_picker then
       choose_session(cwd, bridged, selected_sessions, callback)
