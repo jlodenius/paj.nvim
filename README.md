@@ -45,4 +45,6 @@ Registration alone does not mean the editor bridge is available.
 
 ## Reference
 
-[Session selection, configuration, troubleshooting, and development](docs/reference.md).
+- [Editor commands and session selection](docs/usage.md)
+- [Settings](docs/settings.md)
+- [Troubleshooting and development](docs/development.md)
