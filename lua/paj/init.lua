@@ -364,7 +364,20 @@ local function follow_up_response(buffer)
     vim.notify("Wait for the Paj response to complete", vim.log.levels.INFO)
     return
   end
-  open_text_input({ title = " Paj follow-up " }, function(question)
+  open_text_input({
+    title = " Paj follow-up ",
+    can_submit = function()
+      if requests[buffer] ~= request then
+        vim.notify("The Paj response buffer is no longer available", vim.log.levels.ERROR)
+        return false
+      end
+      if request.active then
+        vim.notify("Wait for the Paj response to complete", vim.log.levels.INFO)
+        return false
+      end
+      return true
+    end,
+  }, function(question)
     run_request(response.followup_request(question), request.cwd, request.session, buffer, {
       kind = "followup",
       text = question,
@@ -384,15 +397,20 @@ local function accept_response(buffer)
     return
   end
 
+  local generation = request.generation
   local function accept(action)
-    if not action then
+    if
+      not action
+      or requests[buffer] ~= request
+      or request.active
+      or request.generation ~= generation
+      or action.status ~= "pending"
+    then
       return
     end
-    action.status = "accepted"
-    render_response_actions(buffer)
     run_request(response.accept_request(action), request.cwd, request.session, buffer, {
-      kind = "accepted",
-      text = action.title,
+      kind = "accept",
+      action = action,
     })
   end
 
@@ -484,16 +502,18 @@ local function append_turn(buffer, entry)
     return
   end
   local lines = { "", "---", "" }
+  local heading_row = vim.api.nvim_buf_line_count(buffer) + #lines
   if entry.kind == "followup" then
     vim.list_extend(lines, { "## You", "" })
     vim.list_extend(lines, vim.split(entry.text, "\n", { plain = true }))
     vim.list_extend(lines, { "", "## Agent", "", "" })
   else
-    vim.list_extend(lines, { "## Accepted · " .. entry.text, "", "## Agent", "", "" })
+    vim.list_extend(lines, { "## Accept requested · " .. entry.action.title, "", "## Agent", "", "" })
   end
   vim.bo[buffer].modifiable = true
   vim.api.nvim_buf_set_lines(buffer, -1, -1, false, lines)
   vim.bo[buffer].modifiable = false
+  return heading_row
 end
 
 local function show_latest_turn(buffer, response_start)
@@ -541,9 +561,13 @@ run_request = function(editor_request, cwd, target_session, target_buffer, entry
     request.cancelled = false
     request.generation = (request.generation or 0) + 1
     local generation = request.generation
+    local action = entry and entry.action
+    if action then
+      action.status = "submitted"
+    end
     start_spinner(buffer, request)
     render_response_actions(buffer)
-    append_turn(buffer, entry)
+    local heading_row = append_turn(buffer, entry)
     request.response_start = vim.api.nvim_buf_line_count(buffer) - 1
     if continuing then
       show_latest_turn(buffer, request.response_start)
@@ -556,6 +580,18 @@ run_request = function(editor_request, cwd, target_session, target_buffer, entry
           return
         end
         if event.event == "accepted" then
+          if action then
+            action.status = "accepted"
+            vim.bo[buffer].modifiable = true
+            vim.api.nvim_buf_set_lines(
+              buffer,
+              heading_row,
+              heading_row + 1,
+              false,
+              { "## Accepted · " .. action.title }
+            )
+            vim.bo[buffer].modifiable = false
+          end
           set_header(buffer, session, "working")
         elseif event.event == "delta" then
           append_text(buffer, event.text or "")
@@ -572,6 +608,9 @@ run_request = function(editor_request, cwd, target_session, target_buffer, entry
           set_header(buffer, session, "complete")
           render_response_actions(buffer)
         elseif event.event == "error" then
+          if action and action.status == "submitted" and event.code == "busy" then
+            action.status = "pending"
+          end
           request.active = false
           stop_spinner(request)
           set_header(buffer, session, "error")
@@ -699,6 +738,9 @@ open_text_input = function(options, on_submit)
       local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "\n"))
       if text == "" then
         vim.notify(options.empty_message or "Paj input cannot be empty", vim.log.levels.WARN)
+        return
+      end
+      if options.can_submit and not options.can_submit() then
         return
       end
       sent = true

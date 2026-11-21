@@ -135,6 +135,25 @@ function mock.request(_, cwd, session, request, handlers)
     })
     handlers.on_exit(0)
     return 104
+  elseif mock.behavior == "busy_before_acceptance" then
+    handlers.on_event({ event = "error", code = "busy", message = "Pi session is busy" })
+    handlers.on_exit(1)
+    return 102
+  elseif mock.behavior == "hold" then
+    mock.held = handlers
+    return 106
+  elseif mock.behavior == "two_proposals" then
+    handlers.on_event({ event = "accepted" })
+    handlers.on_event({
+      event = "complete",
+      text = "Two possible changes.",
+      actions = {
+        { id = "change-one", title = "Change one", description = "Make the first change." },
+        { id = "change-two", title = "Change two", description = "Make the second change." },
+      },
+    })
+    handlers.on_exit(0)
+    return 107
   elseif mock.behavior == "malformed_actions" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({
@@ -406,8 +425,24 @@ assert(vim.api.nvim_win_is_valid(proposal_footer_window))
 assert(buffer_text(proposal_footer_buffer):find("[a]", 1, true))
 assert(vim.fn.exists(":PajAccept") == 2)
 assert(vim.fn.exists(":PajFollowUp") == 2)
-mock.behavior = "complete"
+mock.behavior = "busy_before_acceptance"
+local before_accept = #mock.requests
 vim.cmd("PajAccept")
+assert(#mock.requests == before_accept + 1 and mock.requests[#mock.requests].request.actionId == "change-one")
+assert(buffer_text(proposal_buffer):find("busy: Pi session is busy", 1, true))
+assert(not buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
+assert(buffer_text(proposal_footer_buffer):find("[a]", 1, true))
+
+mock.behavior = "hold"
+vim.cmd("PajAccept")
+assert(#mock.requests == before_accept + 2)
+assert(buffer_text(proposal_buffer):find("## Accept requested · Change one", 1, true))
+assert(not buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
+mock.held.on_event({ event = "accepted" })
+assert(buffer_text(proposal_buffer):find("## Accepted · Change one", 1, true))
+assert(not buffer_text(proposal_buffer):find("final\nanswer", 1, true))
+mock.held.on_event({ event = "complete", text = "final\nanswer", actions = {} })
+mock.held.on_exit(0)
 local accepted_request = mock.requests[#mock.requests]
 assert(accepted_request.session.id == "two" and accepted_request.cwd == project)
 assert(accepted_request.request.kind == "acceptAction")
@@ -427,6 +462,55 @@ if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.api.nvim_set_current_buf(proposal_buffer)
   vim.cmd("PajClose")
 end
+
+mock.behavior = "two_proposals"
+vim.cmd("PajExplain asynchronous-picker")
+local picker_buffer = vim.api.nvim_get_current_buf()
+local choose_proposal, proposal_choices
+local original_proposal_select = vim.ui.select
+vim.ui.select = function(items, _, callback)
+  proposal_choices, choose_proposal = items, callback
+end
+vim.cmd("PajAccept")
+local overlapping_choice = choose_proposal
+vim.cmd("PajAccept")
+local stale_choice = choose_proposal
+vim.cmd("PajAccept")
+vim.cmd("PajFollowUp")
+local draft_buffer = vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(draft_buffer, 0, -1, false, { "Does this still apply?" })
+local before_picker_accept = #mock.requests
+mock.behavior = "hold"
+choose_proposal(proposal_choices[1])
+assert(#mock.requests == before_picker_accept + 1)
+overlapping_choice(proposal_choices[2])
+assert(#mock.requests == before_picker_accept + 1, "a delayed picker must not start an overlapping request")
+vim.cmd("write")
+assert(#mock.requests == before_picker_accept + 1, "a follow-up draft must not supersede active acceptance")
+assert(vim.api.nvim_get_current_buf() == draft_buffer and vim.bo[draft_buffer].modified)
+vim.cmd("close!")
+mock.held.on_event({ event = "accepted" })
+mock.held.on_event({ event = "complete", text = "First turn complete", actions = {} })
+mock.held.on_exit(0)
+assert(buffer_text(picker_buffer):find("## Accepted · Change one", 1, true))
+stale_choice(proposal_choices[2])
+assert(#mock.requests == before_picker_accept + 1, "a picker from an earlier turn must not submit a proposal")
+vim.ui.select = original_proposal_select
+
+mock.behavior = "client_error"
+vim.cmd("PajAccept")
+wait_for(function()
+  return buffer_text(picker_buffer):find("client failed", 1, true) ~= nil
+end)
+assert(mock.requests[#mock.requests].request.actionId == "change-two")
+assert(#mock.requests == before_picker_accept + 2, "an ambiguous failure must not replay the edit request")
+assert(not buffer_text(picker_buffer):find("## Accepted · Change two", 1, true))
+local _, _, disconnected_footer = output_footer(picker_buffer)
+assert(not disconnected_footer:find("[a]", 1, true))
+vim.cmd("PajAccept")
+assert(#mock.requests == before_picker_accept + 2)
+vim.cmd("PajClose")
+
 mock.behavior = "malformed_actions"
 vim.cmd("PajExplain malformed")
 local malformed_buffer = vim.api.nvim_get_current_buf()
