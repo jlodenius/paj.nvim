@@ -1,14 +1,9 @@
 # paj.nvim
 
-Neovim client for the [Paj](https://github.com/jlodenius/paj) Unix-socket bridge. It discovers live Pi sessions for the current project, sends editor context without terminal scraping, and streams responses into a scratch buffer.
+Ask Pi about your code or review it from Neovim. Replies appear in a Markdown scratch buffer.
 
-## Requirements
-
-- Neovim 0.10 or newer
-- The [Paj CLI on `PATH` and the Paj Pi extension](https://github.com/jlodenius/paj#install)
-- A live Pi session with an available editor bridge
-
-The CLI, extension, and plugin must be updated together; older Paj versions do not provide the native structured actions this plugin expects.
+Requires Neovim 0.10+, the [Paj CLI on `PATH` and the Paj Pi extension](https://github.com/jlodenius/paj#install),
+and a live Pi session with an editor bridge. Update the CLI, extension, and plugin together.
 
 ## Installation
 
@@ -32,102 +27,22 @@ Or add the repository to `runtimepath` and call `require("paj").setup()`.
 
 ## Usage
 
-Start Pi in the same project as the buffer you're editing. If Pi was already open when you
-installed Paj, run `/reload` in Pi. Run `:%PajReview` in Neovim and look for the reply in a
-Markdown scratch buffer. The request sends the current buffer text, including unsaved changes.
+Start Pi in the same project as your buffer. If Pi was already open when you installed Paj,
+run `/reload` in Pi. In Neovim, run `:%PajReview` and look for the reply in a scratch buffer.
 
-The plugin prefers bridged main Pi sessions (`primary` in Paj). When exactly one primary is available, it is selected even if subagents are also running; when multiple primaries are available, Paj opens `vim.ui.select` for those primary sessions and remembers the choice per project while it remains a candidate. If the topology changes to a sole primary, that session is selected instead. If no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries show each session's name, role, branch, and task.
+- `PajQuery`, `PajExplain`, and `PajReview` send the current text, including unsaved changes.
+  Use a range for selected lines; without one, they use the whole buffer. In the query editor,
+  use `:write` to send.
+- `:PajSessions` (or `:PajAttach`) selects a bridged session. The plugin prefers main sessions.
+- In a reply, press `f` to follow up in the same Pi session or `q` to cancel or close.
 
-Use `:PajSessions` to explicitly choose any bridged session, including a subagent. That override is remembered per project while Neovim is running; if the selected session disappears, normal primary selection resumes.
+Queries, reviews, and follow-ups cannot edit files. Press `a` to authorize an edit-capable turn
+for a proposal. **Accepted** means the bridge acknowledged it, not that the edit succeeded.
+You can retry a definite busy rejection manually; the plugin does not replay a disconnect.
 
-### Commands
+If no session appears, run `paj --json session list` from the buffer's project.
+Registration alone does not mean the editor bridge is available.
 
-| Command | Description |
-| --- | --- |
-| `:PajSessions` | Select the target Pi session for the current project |
-| `:PajAttach` | Alias for `:PajSessions` |
-| `:[range]PajQuery` | Open an editable floating query for the selected lines or entire buffer; write it to send |
-| `:[range]PajExplain [focus]` | Explain the selected lines, or the entire buffer without a range |
-| `:[range]PajReview [focus]` | Review the selected lines, or the entire buffer without a range |
+## Reference
 
-Examples:
-
-```vim
-:'<,'>PajQuery
-:'<,'>PajExplain focus on ownership
-:%PajReview focus on error handling
-:PajReview focus on concurrency
-```
-
-`PajQuery` opens a centered multiline floating buffer with a `:w=submit q=cancel` footer. Enter a question and use `:write` to send it, or press `q` in normal mode to cancel.
-
-`PajQuery`, `PajExplain`, and `PajReview` send the source path, line range, and buffer content as a structured editor request. With no range they use the entire current buffer. The Pi extension retains that structure and exposes the source to the agent as untrusted data through the read-only `paj_editor_context` tool. Query, explanation, review, and follow-up turns cannot use mutation-capable tools. Responses stream into a temporary Markdown scratch buffer.
-
-While a request is running, use buffer-local `:PajCancel` or press `q` to cancel it. Press `q` again to close the output, or use buffer-local `:PajClose` to cancel and close immediately.
-
-Every completed response shows a sticky action footer pinned to the bottom of its output window and supports a follow-up with `f` or buffer-local `:PajFollowUp`. This opens the same multiline editor and sends the question to the same Pi session. Paj supplies proposed changes as native structured actions alongside ordinary Markdown response text; the plugin does not parse hidden Markdown metadata. When a response includes one or more proposals, the footer shows an accept action. Press `a` or run buffer-local `:PajAccept`; when there are multiple proposals, select one with `vim.ui.select`. Follow-up questions, accepted changes, and subsequent agent responses are appended to the existing output buffer as a conversation. Closing a response without accepting does not authorize any edits. An `Accepted` heading means the bridge acknowledged the edit request, not that Pi successfully made changes. If the bridge rejects the request as busy before acknowledging it, the proposal is still available for a manual retry. The plugin does not replay a request after a disconnect.
-
-## Configuration
-
-```lua
-require("paj").setup({
-  command = "paj",
-  timeout = 300,
-  output_size = 30,
-  output_position = "bottom",
-  max_request_bytes = 200 * 1024,
-})
-```
-
-| Option | Description |
-| --- | --- |
-| `command` | Paj executable name or path |
-| `timeout` | Bridge request timeout in seconds |
-| `output_size` | Response split size as a percentage from `1` to `100` |
-| `output_position` | Response split position: `"top"`, `"bottom"`, `"left"`, or `"right"` |
-| `max_request_bytes` | Maximum encoded editor request size accepted by the plugin |
-
-For top and bottom splits, `output_size` is a percentage of the editor height. For left and right splits, it is a percentage of the editor width.
-
-Requests are encoded as JSON and piped directly to `paj bridge request --request-stdin`; they are not stored in temporary files.
-
-## Troubleshooting
-
-### No live sessions
-
-From the buffer's project, check that Pi is running with the Paj extension:
-
-```sh
-paj --json session list
-```
-
-Session discovery is project-scoped. Neovim uses the current buffer's Git root, falling back to its working directory outside a Git repository. Registration alone does not mean the editor bridge is available.
-
-### Session has no bridge
-
-Inspect the selected session:
-
-```sh
-paj bridge status <session>
-```
-
-If it is unavailable, confirm that the Pi session loaded the Paj extension and that its registration is healthy.
-
-### Session is busy
-
-A Pi session handles one bridge request at a time. Wait for its current turn to finish, cancel the request from its output buffer, or select another session with `:PajSessions`.
-
-### Cancel a request
-
-In the request's output buffer, run `:PajCancel` or press `q`. Cancellation stops the Paj bridge client and asks the connected Pi session to abort that bridge request. Closing or wiping a running output buffer also cancels it.
-
-### Request times out
-
-Increase `timeout` in `setup()` for requests that need longer to complete. The value is forwarded to `paj bridge request --timeout`.
-
-## Development
-
-```sh
-stylua --check lua plugin tests
-nvim --headless -u NONE -l tests/headless.lua
-```
+[Session selection, configuration, troubleshooting, and development](docs/reference.md).
