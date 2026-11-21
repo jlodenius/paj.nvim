@@ -5,8 +5,8 @@ Neovim client for the [Paj](https://github.com/jlodenius/paj) Unix-socket bridge
 ## Requirements
 
 - Neovim 0.10 or newer
-- A current `paj` CLI on `PATH`
-- A live Pi session with the current Paj extension enabled
+- The [Paj CLI on `PATH` and the Paj Pi extension](https://github.com/jlodenius/paj#install)
+- A live Pi session with an available editor bridge
 
 The CLI, extension, and plugin must be updated together; older Paj versions do not provide the native structured actions this plugin expects.
 
@@ -21,7 +21,7 @@ With `lazy.nvim`:
 }
 ```
 
-With `vim.pack`:
+With `vim.pack` (Neovim 0.12+):
 
 ```lua
 vim.pack.add({ "https://github.com/jlodenius/paj.nvim" })
@@ -32,14 +32,11 @@ Or add the repository to `runtimepath` and call `require("paj").setup()`.
 
 ## Usage
 
-Start Pi in the same project as Neovim, then query or review editor source:
+Start Pi in the same project as the buffer you're editing. If Pi was already open when you
+installed Paj, run `/reload` in Pi. Run `:%PajReview` in Neovim and look for the reply in a
+Markdown scratch buffer. The request sends the current buffer text, including unsaved changes.
 
-```vim
-:%PajQuery
-:'<,'>PajReview
-```
-
-Paj automatically targets bridged sessions with the `primary` role. When exactly one primary is available, it is selected even if subagents are also running; when multiple primaries are available, Paj opens `vim.ui.select` for those primary sessions and remembers the choice per project while it remains a candidate. If the topology changes to a sole primary, that session is selected instead. If no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries show each session's name, role, branch, and task.
+The plugin prefers bridged main Pi sessions (`primary` in Paj). When exactly one primary is available, it is selected even if subagents are also running; when multiple primaries are available, Paj opens `vim.ui.select` for those primary sessions and remembers the choice per project while it remains a candidate. If the topology changes to a sole primary, that session is selected instead. If no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries show each session's name, role, branch, and task.
 
 Use `:PajSessions` to explicitly choose any bridged session, including a subagent. That override is remembered per project while Neovim is running; if the selected session disappears, normal primary selection resumes.
 
@@ -98,13 +95,13 @@ Requests are encoded as JSON and piped directly to `paj bridge request --request
 
 ### No live sessions
 
-Check that Pi is running with the Paj extension in the same Git repository:
+From the buffer's project, check that Pi is running with the Paj extension:
 
 ```sh
 paj --json session list
 ```
 
-Session discovery is project-scoped. Neovim uses the current buffer's Git root, falling back to its working directory outside a Git repository.
+Session discovery is project-scoped. Neovim uses the current buffer's Git root, falling back to its working directory outside a Git repository. Registration alone does not mean the editor bridge is available.
 
 ### Session has no bridge
 
