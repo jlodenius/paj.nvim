@@ -8,7 +8,7 @@ The plugin prefers bridged main Pi sessions (`primary` in Paj). When exactly one
 available, it is selected even if subagents are also running; when multiple primaries are available,
 Paj opens `vim.ui.select` for those primary sessions and remembers the choice per project while it
 remains a candidate. If the topology changes to a sole primary, that session is selected instead. If
-no primary is available, Paj falls back to all bridged sessions for compatibility. Picker entries
+no primary is available, Paj offers all bridged sessions. Picker entries
 show each session's name, role, branch, and task.
 
 Use `:PajSessions` to explicitly choose any bridged session, including a subagent. That override is
