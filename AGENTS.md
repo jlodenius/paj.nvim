@@ -1,4 +1,5 @@
-# Git
+# paj.nvim
 
-- Never check out feature branches unless specifically told to do so.
-- Commit changes directly on master.
+Always run `npm run format` after editing any `.ts` file.
+
+Lua changes: run the local checks in [Development](docs/development.md#development).

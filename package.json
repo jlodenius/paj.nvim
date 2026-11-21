@@ -1,0 +1,11 @@
+{
+  "name": "paj.nvim",
+  "private": true,
+  "scripts": {
+    "format": "prettier --no-config --write --no-error-on-unmatched-pattern \"**/*.ts\"",
+    "format:check": "prettier --no-config --check --no-error-on-unmatched-pattern \"**/*.ts\""
+  },
+  "devDependencies": {
+    "prettier": "3.10.1"
+  }
+}
