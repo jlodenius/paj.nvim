@@ -1,5 +1,6 @@
 local client = require("paj.client")
 local context = require("paj.context")
+local edit = require("paj.edit")
 local response = require("paj.response")
 
 local M = {}
@@ -12,6 +13,7 @@ local M = {}
 ---@field output_size? number Output split size as a percentage from 1 to 100
 ---@field output_position? PajOutputPosition Output split position
 ---@field max_request_bytes? number Maximum encoded request size in bytes
+---@field edit? { command?: string, model?: string, thinking?: string, timeout?: number }
 
 local defaults = {
   command = "paj",
@@ -19,6 +21,7 @@ local defaults = {
   output_size = 30,
   output_position = "bottom",
   max_request_bytes = 200 * 1024,
+  edit = {},
 }
 
 local config = vim.deepcopy(defaults)
@@ -795,12 +798,16 @@ end
 function M.setup(options)
   local candidate = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
   validate_config(candidate)
+  edit.validate(candidate.edit)
   config = candidate
   if configured then
     return
   end
   configured = true
 
+  edit.setup(function()
+    return config.edit
+  end)
   vim.api.nvim_create_user_command("PajSessions", function()
     local cwd = project_root()
     resolve_session(cwd, true, function(session)

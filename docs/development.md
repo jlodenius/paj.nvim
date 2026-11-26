@@ -49,4 +49,5 @@ complete. The value is forwarded to
 ```sh
 stylua --check lua plugin tests
 nvim --headless -u NONE -l tests/headless.lua
+nvim --headless -u NONE -l tests/edit.lua
 ```

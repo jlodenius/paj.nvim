@@ -2,8 +2,8 @@
 
 Ask Pi about your code or review it from Neovim. Replies appear in a Markdown scratch buffer.
 
-Requires Neovim 0.10+, the [Paj CLI on `PATH` and the Paj Pi extension](https://github.com/jlodenius/paj#install),
-and a live Pi session with an editor bridge. Update the CLI, extension, and plugin together.
+Requires Neovim 0.10+. For queries and reviews, install the [Paj CLI and Pi extension](https://github.com/jlodenius/paj#install)
+and run a live Pi session with an editor bridge. `:PajEdit` uses headless Pi directly instead.
 
 ## Installation
 
@@ -33,6 +33,7 @@ run `/reload` in Pi. In Neovim, run `:%PajReview` and look for the reply in a sc
 - `PajQuery`, `PajExplain`, and `PajReview` send the current text, including unsaved changes.
   Use a range for selected lines; without one, they use the whole buffer. In the query editor,
   use `:write` to send.
+- `:[range]PajEdit [instruction]` replaces the selected lines in place. See [Edit in place](docs/usage.md#edit-in-place) for visual selections and cancellation.
 - `:PajSessions` (or `:PajAttach`) selects a bridged session. The plugin prefers main sessions.
 - In a reply, press `f` to follow up in the same Pi session or `q` to cancel or close.
 
