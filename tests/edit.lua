@@ -109,13 +109,31 @@ vim.cmd.edit(path)
 assert(calls[#calls].killed and #marks() == 0 and text()[3] == initial[3])
 
 open({ "left é right" })
-vim.ui.input = function(_, callback)
-  callback("replace only the selection")
+local source = api.nvim_get_current_buf()
+local before_draft = #calls
+vim.cmd.PajEdit()
+local draft = api.nvim_get_current_buf()
+assert(draft ~= source and vim.bo[draft].buftype == "acwrite")
+assert(api.nvim_win_get_config(0).relative == "editor" and #calls == before_draft)
+vim.cmd.write()
+assert(api.nvim_get_current_buf() == draft and #calls == before_draft)
+for _, mapping in ipairs(api.nvim_buf_get_keymap(draft, "n")) do
+  if mapping.lhs == "q" then
+    mapping.callback()
+    break
+  end
 end
+assert(api.nvim_get_current_buf() == source and #calls == before_draft and #marks() == 0)
+
 vim.keymap.set("x", "ge", "<Plug>(PajEdit)")
 vim.cmd("normal! 0fév")
 api.nvim_feedkeys("ge", "mx", false)
+assert(vim.bo.buftype == "acwrite" and #calls == before_draft)
+api.nvim_buf_set_lines(0, 0, -1, false, { "replace only the selection", "keep the surrounding text" })
+vim.cmd.write()
+assert(api.nvim_get_current_buf() == source and #calls == before_draft + 1)
 assert(calls[#calls].input.selection == "é", vim.inspect(calls[#calls].input))
+assert(calls[#calls].input.instruction == "replace only the selection\nkeep the surrounding text")
 complete("Ω")
 wait(function()
   return text()[1] == "left Ω right"

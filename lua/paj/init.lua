@@ -711,7 +711,7 @@ open_text_input = function(options, on_submit)
   vim.wo[window].wrap = true
   local footer_buffer, footer_window = create_query_footer(row + height, col, width)
 
-  local closed = false
+  local closed, sent = false, false
   local group = vim.api.nvim_create_augroup("paj_query_" .. buffer, { clear = true })
   local function close_input()
     if closed then
@@ -728,9 +728,11 @@ open_text_input = function(options, on_submit)
       vim.api.nvim_buf_delete(buffer, { force = true })
     end
     pcall(vim.api.nvim_del_augroup_by_id, group)
+    if not sent and options.on_cancel then
+      options.on_cancel()
+    end
   end
 
-  local sent = false
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = group,
     buffer = buffer,
@@ -759,6 +761,7 @@ open_text_input = function(options, on_submit)
   })
   vim.keymap.set("n", "q", close_input, { buffer = buffer, silent = true, nowait = true, desc = "Cancel Paj input" })
   vim.cmd("startinsert")
+  return close_input
 end
 
 local function open_query(command)
@@ -807,7 +810,7 @@ function M.setup(options)
 
   edit.setup(function()
     return config.edit
-  end)
+  end, open_text_input)
   vim.api.nvim_create_user_command("PajSessions", function()
     local cwd = project_root()
     resolve_session(cwd, true, function(session)

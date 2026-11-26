@@ -27,7 +27,9 @@ authorize edits.
 ## Edit in place
 
 Run `:PajEdit [instruction]` to edit the current line or `:[range]PajEdit [instruction]` for a range.
-Omit the instruction to get a prompt. For exact characterwise or linewise visual selections, map
+Omit the instruction to open the same kind of multiline draft window as `:PajQuery`. Use `:w` to
+submit the draft or `q` in Normal mode to discard it. Supplying an instruction on the command line
+still submits it directly. For exact characterwise or linewise visual selections, map
 `<Plug>(PajEdit)` (requires Neovim's `getregionpos()`):
 
 ```lua

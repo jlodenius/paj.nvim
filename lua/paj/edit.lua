@@ -35,6 +35,10 @@ end
 
 local function finish(job, reason)
   jobs[job.path] = nil
+  if job.close_draft then
+    vim.schedule(job.close_draft)
+    job.close_draft = nil
+  end
   remove_mark(job)
   job.timer:stop()
   job.timer:close()
@@ -279,7 +283,7 @@ local function launch(job, prompt, settings)
   end
 end
 
-local function start(buf, range, linewise, prompt, settings)
+local function start(buf, range, linewise, prompt, settings, open_draft)
   local path = file_key(buf)
   if not path or not vim.bo[buf].modifiable then
     notify("use a named, editable file buffer")
@@ -316,7 +320,17 @@ local function start(buf, range, linewise, prompt, settings)
   if prompt ~= "" then
     launch(job, prompt, settings)
   else
-    vim.ui.input({ prompt = "PajEdit instruction: " }, function(value)
+    job.close_draft = open_draft({
+      title = " Paj edit ",
+      empty_message = "Paj edit instruction cannot be empty",
+      on_cancel = function()
+        job.close_draft = nil
+        if jobs[job.path] == job then
+          finish(job)
+        end
+      end,
+    }, function(value)
+      job.close_draft = nil
       launch(job, value, settings)
     end)
   end
@@ -370,11 +384,11 @@ function M.validate(settings)
   end
 end
 
-function M.setup(get_settings)
+function M.setup(get_settings, open_draft)
   api.nvim_create_user_command("PajEdit", function(command)
     local buf = api.nvim_get_current_buf()
     local last = api.nvim_buf_get_lines(buf, command.line2 - 1, command.line2, true)[1]
-    start(buf, { command.line1 - 1, 0, command.line2 - 1, #last }, true, command.args, get_settings())
+    start(buf, { command.line1 - 1, 0, command.line2 - 1, #last }, true, command.args, get_settings(), open_draft)
   end, { range = true, nargs = "*" })
   api.nvim_create_user_command("PajEditCancel", function()
     local job = jobs[file_key(api.nvim_get_current_buf())]
@@ -387,7 +401,7 @@ function M.setup(get_settings)
     if range then
       local buf = api.nvim_get_current_buf()
       vim.cmd("normal! \27")
-      start(buf, range, linewise, "", get_settings())
+      start(buf, range, linewise, "", get_settings(), open_draft)
     end
   end, { desc = "PajEdit selection" })
 
