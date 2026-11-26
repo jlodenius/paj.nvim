@@ -42,8 +42,8 @@ local function wait(predicate)
   assert(vim.wait(2000, predicate, 10), "timed out waiting for edit")
 end
 local ns = api.nvim_get_namespaces()["paj.edit"]
-local function marks()
-  return api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })
+local function marks(buf)
+  return api.nvim_buf_get_extmarks(buf or 0, ns, 0, -1, { details = true })
 end
 
 open()
@@ -115,8 +115,10 @@ vim.cmd.PajEdit()
 local draft = api.nvim_get_current_buf()
 assert(draft ~= source and vim.bo[draft].buftype == "acwrite")
 assert(api.nvim_win_get_config(0).relative == "editor" and #calls == before_draft)
+assert(marks(source)[1][4].hl_group == "Visual" and not marks(source)[1][4].virt_text)
 vim.cmd.write()
 assert(api.nvim_get_current_buf() == draft and #calls == before_draft)
+assert(not marks(source)[1][4].virt_text)
 for _, mapping in ipairs(api.nvim_buf_get_keymap(draft, "n")) do
   if mapping.lhs == "q" then
     mapping.callback()
@@ -132,6 +134,7 @@ assert(vim.bo.buftype == "acwrite" and #calls == before_draft)
 api.nvim_buf_set_lines(0, 0, -1, false, { "replace only the selection", "keep the surrounding text" })
 vim.cmd.write()
 assert(api.nvim_get_current_buf() == source and #calls == before_draft + 1)
+assert(marks()[1][4].virt_text[1][1]:find("PajEdit", 1, true))
 assert(calls[#calls].input.selection == "é", vim.inspect(calls[#calls].input))
 assert(calls[#calls].input.instruction == "replace only the selection\nkeep the surrounding text")
 complete("Ω")

@@ -72,7 +72,7 @@ local function render(job, range)
     invalidate = true,
     hl_group = "Visual",
     hl_eol = job.linewise,
-    virt_text = { { spinner[job.frame] .. " PajEdit", "DiagnosticInfo" } },
+    virt_text = job.process and not job.exited and { { spinner[job.frame] .. " PajEdit", "DiagnosticInfo" } } or nil,
     virt_text_pos = "eol",
   })
 end
@@ -179,7 +179,9 @@ local function tick(job)
     end
     return
   end
-  job.frame = job.frame % #spinner + 1
+  if job.process and not job.exited then
+    job.frame = job.frame % #spinner + 1
+  end
   render(job, range)
 end
 
@@ -278,6 +280,7 @@ local function launch(job, prompt, settings)
   )
   if ok then
     job.process = process
+    tick(job)
   else
     finish(job, "could not start Pi")
   end
