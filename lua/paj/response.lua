@@ -41,12 +41,31 @@ function M.validate_actions(value)
     ids[id] = true
     table.insert(actions, {
       id = id,
-      title = title,
+      title = title:gsub("[\r\n]+", " "),
       description = description,
       status = "pending",
     })
   end
   return actions
+end
+
+function M.body_lines(text, actions)
+  local lines = vim.split(text, "\n", { plain = true })
+  if #actions == 0 then
+    return lines
+  end
+
+  if vim.trim(text) == "" then
+    lines = {}
+  else
+    table.insert(lines, "")
+  end
+  table.insert(lines, "## Proposed changes")
+  for _, action in ipairs(actions) do
+    vim.list_extend(lines, { "", "### " .. action.title, "" })
+    vim.list_extend(lines, vim.split(action.description, "\n", { plain = true }))
+  end
+  return lines
 end
 
 function M.accept_request(action)

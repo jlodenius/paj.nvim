@@ -122,15 +122,19 @@ function mock.request(_, cwd, session, request, handlers)
     handlers.on_event({ event = "complete", version = 1, id = "request", text = "final\nanswer", actions = {} })
     handlers.on_exit(0)
     return 101
-  elseif mock.behavior == "proposal" then
+  elseif mock.behavior == "proposal" or mock.behavior == "proposal_only" then
     handlers.on_event({ event = "accepted" })
     handlers.on_event({
       event = "complete",
       version = 1,
       id = "request",
-      text = "A change would help.",
+      text = mock.behavior == "proposal_only" and "" or "A change would help.",
       actions = {
-        { id = "change-one", title = "Change one", description = "Make the proposed change." },
+        {
+          id = "change-one",
+          title = "Change one",
+          description = "Make the proposed change.\nKeep the existing behavior.",
+        },
       },
     })
     handlers.on_exit(0)
@@ -406,6 +410,8 @@ assert(sent_query.request.query == "What does this return?\nMention the value.")
 assert(sent_query.request.source.content == "return first")
 assert(sent_query.request.source.startLine == 2 and sent_query.request.source.endLine == 2)
 assert(buffer_text(proposal_buffer):find("A change would help", 1, true))
+assert(buffer_text(proposal_buffer):find("### Change one", 1, true))
+assert(buffer_text(proposal_buffer):find("Make the proposed change.", 1, true))
 local proposal_footer_window, proposal_footer_buffer, proposal_footer = output_footer(proposal_buffer)
 assert(proposal_footer_window and vim.api.nvim_win_get_config(proposal_footer_window).relative == "win")
 assert(vim.api.nvim_win_get_config(proposal_footer_window).border == "none")
@@ -463,9 +469,21 @@ if vim.api.nvim_buf_is_valid(proposal_buffer) then
   vim.cmd("PajClose")
 end
 
+mock.behavior = "proposal_only"
+vim.cmd("PajExplain proposal-only")
+local proposal_only_buffer = vim.api.nvim_get_current_buf()
+local _, _, proposal_only_footer = output_footer(proposal_only_buffer)
+assert(proposal_only_footer:find("[a]", 1, true), "the structured action arrived")
+local proposal_only_text = buffer_text(proposal_only_buffer)
+assert(proposal_only_text:find("Change one", 1, true), "an accept-enabled proposal must show its title")
+assert(proposal_only_text:find("Make the proposed change.\nKeep the existing behavior.", 1, true))
+vim.cmd("PajClose")
+
 mock.behavior = "two_proposals"
 vim.cmd("PajExplain asynchronous-picker")
 local picker_buffer = vim.api.nvim_get_current_buf()
+assert(buffer_text(picker_buffer):find("Make the first change.", 1, true))
+assert(buffer_text(picker_buffer):find("Make the second change.", 1, true))
 local choose_proposal, proposal_choices
 local original_proposal_select = vim.ui.select
 vim.ui.select = function(items, _, callback)

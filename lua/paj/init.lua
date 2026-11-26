@@ -603,8 +603,8 @@ run_request = function(editor_request, cwd, target_session, target_buffer, entry
           stop_spinner(request)
           request.response = type(event.text) == "string" and event.text or ""
           local actions = response.validate_actions(event.actions)
+          local body = response.body_lines(request.response, actions)
           request.actions = continuing and merge_actions(request.actions, actions) or actions
-          local body = vim.split(request.response, "\n", { plain = true })
           vim.bo[buffer].modifiable = true
           vim.api.nvim_buf_set_lines(buffer, request.response_start, -1, false, body)
           vim.bo[buffer].modifiable = false

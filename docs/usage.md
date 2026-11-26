@@ -20,9 +20,9 @@ selection resumes.
 Use `PajExplain [focus]` and `PajReview [focus]` to explain or review selected lines or the
 whole buffer. `PajQuery` opens a multiline question editor; press `q` there to discard the draft.
 
-In a reply buffer, `PajFollowUp` (`f`) asks the same Pi session a follow-up. `PajAccept` (`a`)
-asks you to choose if there is more than one proposal. Closing without accepting does not
-authorize edits.
+The reply shows each attached proposal's title and description under **Proposed changes**.
+`PajFollowUp` (`f`) asks the same Pi session a follow-up. `PajAccept` (`a`) asks you to choose
+if there is more than one proposal. Closing without accepting does not authorize edits.
 
 ## Edit in place
 
